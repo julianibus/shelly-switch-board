@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ title }}</title>
+  <style>
+    :root {
+      --bg: #0b0f1a;
+      --fg: #f7f7f7;
+      --panel: #1b2030;
+      --accent: #ff9f43;
+      --accent2: #e66767;
+      --accent3: #48dbfb;
+      --muted: #99a3b3;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: radial-gradient(1200px 800px at 10% 10%, #12182a 0%, var(--bg) 60%);
+      color: var(--fg); font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, "Helvetica Neue", Arial;
+      min-height: 100vh; display: flex; flex-direction: column;
+    }
+    header {
+      padding: 24px 20px 8px; display: flex; align-items: baseline; gap: 16px;
+    }
+    .title { font-size: 28px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
+    .badge { font-size: 12px; padding: 6px 10px; border-radius: 999px; background: var(--accent3); color: #061018; font-weight: 700; letter-spacing: 0.08em; }
+
+    .lcars-bar {
+      height: 14px; background: linear-gradient(90deg, var(--accent), var(--accent2));
+      border-top-right-radius: 28px; border-bottom-right-radius: 28px; width: 42%; margin-left: 12px;
+      box-shadow: 0 0 24px rgba(255, 159, 67, 0.25);
+    }
+
+    main {
+      flex: 1; padding: 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px;
+    }
+
+    .lcars-card {
+      position: relative; background: var(--panel); border-radius: 28px; padding: 18px; overflow: hidden;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.04);
+    }
+    .lcars-card::before {
+      content: ""; position: absolute; inset: -60px -60px auto auto; width: 160px; height: 160px; border-radius: 0 0 0 120px; opacity: 0.3; filter: blur(0.5px);
+      background: var(--accent);
+      transform: rotate(45deg);
+    }
+
+    .device-btn {
+      width: 100%; aspect-ratio: 2.6 / 1; border: none; cursor: pointer; color: #0a0a0a; font-weight: 900; letter-spacing: 0.06em; text-transform: uppercase;
+      border-radius: 28px; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      box-shadow: inset 0 -4px 0 rgba(0,0,0,0.25), 0 10px 22px rgba(0,0,0,0.35);
+      transition: transform 120ms ease, filter 120ms ease, box-shadow 120ms ease;
+      background: var(--btn-color, var(--accent));
+    }
+    .device-btn:hover { transform: translateY(-1px); filter: brightness(1.06); }
+    .device-btn:active { transform: translateY(1px); filter: brightness(0.95); box-shadow: inset 0 3px 0 rgba(0,0,0,0.35); }
+
+    .symbol { font-size: 28px; filter: drop-shadow(0 1px 0 rgba(0,0,0,.15)); }
+    .label { display: grid; gap: 4px; text-align: right; }
+    .name { font-size: 16px; }
+    .ip { font-size: 12px; opacity: 0.85; }
+
+    .status {
+      position: absolute; right: 14px; top: 14px; font-size: 11px; padding: 4px 8px; border-radius: 999px; color: #061018; background: #ffd166; font-weight: 800;
+      letter-spacing: 0.08em;
+    }
+
+    footer {
+      padding: 14px 20px 24px; color: var(--muted); font-size: 12px; text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="title">{{ title }}</div>
+  </header>
+  <div class="lcars-bar"></div>
+
+  <main id="grid"></main>
+
+  <footer>
+    Tip: add/edit devices in <code>config.json</code> and restart the app.
+  </footer>
+
+  <script>
+    async function fetchDevices() {
+      const res = await fetch('/api/devices');
+      if (!res.ok) throw new Error('Failed to load devices');
+      return await res.json();
+    }
+
+    function cardTemplate(d) {
+      const color = d.color || '#FF9F43';
+      const symbol = d.symbol || '⏻';
+      const name = d.name || d.ip;
+      return `
+        <div class="lcars-card">
+          <div class="status" data-ip="${d.ip}">READY</div>
+          <button class="device-btn" style="--btn-color: ${color}" data-ip="${d.ip}">
+            <span class="symbol">${symbol}</span>
+            <span class="label">
+              <span class="name">${name}</span>
+              <span class="ip">${d.ip}</span>
+            </span>
+          </button>
+        </div>
+      `;
+    }
+
+    async function toggle(ip, statusEl, btnEl) {
+      try {
+        statusEl.textContent = 'SENDING';
+        btnEl.disabled = true;
+        const res = await fetch('/api/toggle', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ ip })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || 'Toggle failed');
+        statusEl.textContent = 'TOGGLED';
+        setTimeout(() => statusEl.textContent = 'READY', 1000);
+      } catch (e) {
+        statusEl.textContent = 'ERROR';
+        console.error(e);
+      } finally {
+        btnEl.disabled = false;
+      }
+    }
+
+    async function init() {
+      const grid = document.getElementById('grid');
+      const devices = await fetchDevices();
+      grid.innerHTML = devices.map(cardTemplate).join('');
+
+      grid.querySelectorAll('.device-btn').forEach(btn => {
+        const ip = btn.getAttribute('data-ip');
+        const statusEl = btn.parentElement.querySelector('.status');
+        btn.addEventListener('click', () => toggle(ip, statusEl, btn));
+      });
+    }
+
+    init().catch(err => {
+      const grid = document.getElementById('grid');
+      grid.innerHTML = `<div style="opacity:.8">Failed to load devices: ${err.message}</div>`;
+      console.error(err);
+    });
+  </script>
+</body>
+</html>

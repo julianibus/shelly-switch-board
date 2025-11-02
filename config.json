@@ -1,0 +1,9 @@
+{
+  "devices": [
+    {"ip": "192.168.178.37", "name": "Avocado", "color": "#2AF527", "symbol": "💡"},
+    {"ip": "192.168.178.29", "name": "Regal", "color": "#F5CF27", "symbol": "💡"},
+    {"ip": "192.168.178.32", "name": "Flur", "color": "#F5CF27", "symbol": "💡"},
+    {"ip": "192.168.178.34", "name": "Schreibtisch", "color": "#F5CF27", "symbol": "💡"},
+    {"ip": "192.168.178.35", "name": "Küche", "color": "#F5CF27", "symbol": "💡"}
+  ]
+}
