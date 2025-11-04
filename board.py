@@ -9,7 +9,7 @@ from typing import Dict, Any
 
 import requests
 from flask import Flask, jsonify, request, abort, make_response, render_template
-
+print("Hello")
 APP_TITLE = "Shelly Panel"
 CONFIG_PATH = Path(__file__).with_name("config.json")
 
@@ -18,6 +18,7 @@ app = Flask(__name__)
 # ------------------------
 # Config loading utilities
 # ------------------------
+
 
 def load_config() -> Dict[str, Any]:
     if CONFIG_PATH.exists():
@@ -36,6 +37,74 @@ def load_config() -> Dict[str, Any]:
 
 # Cache config in memory; modify here if you want hot-reload via file watcher
 CONFIG: Dict[str, Any] = load_config()
+
+# ------------------------
+# Weather helpers
+# ------------------------
+from datetime import datetime, timedelta, timezone
+
+GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
+FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+
+
+def geocode_location(query: str) -> Dict[str, Any] | None:
+    """Return a dict with latitude, longitude and name for the given query or None on failure."""
+    if not query:
+        return None
+    try:
+        r = requests.get(GEOCODING_URL, params={"name": query, "count": 1}, timeout=5)
+        r.raise_for_status()
+        j = r.json()
+        results = j.get("results") or []
+        if not results:
+            return None
+        top = results[0]
+        return {"name": top.get("name"), "latitude": top.get("latitude"), "longitude": top.get("longitude"), "country": top.get("country")}
+    except Exception:
+        return None
+
+
+def get_weather_for_location(query: str, hours: int = 48) -> Dict[str, Any]:
+    """Fetch hourly temperature and precipitation for the next `hours` hours and current weather.
+
+    Uses Open-Meteo APIs (geocoding + forecast). Returns a dict with keys:
+      - location_name
+      - times (list of ISO strings) limited to `hours`
+      - temperature (list)
+      - precipitation (list)
+      - current_weather (object) if available: {temperature, windspeed, winddirection, weathercode, time}
+    On failure returns empty arrays and an 'error' key.
+    """
+    ge = geocode_location(query)
+    if not ge:
+        return {"location_name": query or "(unknown)", "times": [], "temperature": [], "precipitation": [], "current_weather": None, "error": "geocoding_failed"}
+
+    lat = ge["latitude"]
+    lon = ge["longitude"]
+    location_name = f"{ge.get('name')}, {ge.get('country') or ''}".strip(', ')
+
+    # Request next 2 days (48h) of hourly forecast. Use Europe/Berlin timezone for Munich/local times.
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "hourly": "temperature_2m,precipitation",
+        "forecast_days": 2,
+        "current_weather": True,
+        "timezone": "Europe/Berlin",
+    }
+
+    try:
+        r = requests.get(FORECAST_URL, params=params, timeout=8)
+        r.raise_for_status()
+        j = r.json()
+        hourly = j.get("hourly", {})
+        times = hourly.get("time", [])[:hours]
+        temps = hourly.get("temperature_2m", [])[:hours]
+        prec = hourly.get("precipitation", [])[:hours]
+        current = j.get("current_weather") or {}
+        return {"location_name": location_name, "times": times, "temperature": temps, "precipitation": prec, "current_weather": current}
+    except Exception as e:
+        return {"location_name": location_name, "times": [], "temperature": [], "precipitation": [], "current_weather": None, "error": str(e)}
 
 # ------------------------
 # Shelly helpers
@@ -93,7 +162,18 @@ def api_toggle():
 
 @app.get("/")
 def index():
+    # read location from config (default to Munich, Germany if not provided)
+    location = CONFIG.get("location") or "Munich, Germany"
+    # We'll render the page and let the client fetch `/api/weather` for live updates.
     return render_template("index.html", title=APP_TITLE)
+
+
+@app.get("/api/weather")
+def api_weather():
+    """Return weather JSON for the configured location (next 48 hours)."""
+    location = CONFIG.get("location") or "Munich, Germany"
+    data = get_weather_for_location(location, hours=48)
+    return jsonify(data)
 
 # ------------------------
 # Entrypoint

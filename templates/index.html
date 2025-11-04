@@ -33,7 +33,12 @@
     }
 
     main {
-      flex: 1; padding: 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px;
+      flex: 1; padding: 24px; display: grid; grid-template-columns: 420px 1fr; gap: 18px; align-items: start;
+    }
+
+    /* Responsive fallback */
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
     }
 
     .lcars-card {
@@ -46,10 +51,11 @@
       transform: rotate(45deg);
     }
 
+    /* Compact device button for left column */
     .device-btn {
-      width: 100%; aspect-ratio: 2.6 / 1; border: none; cursor: pointer; color: #0a0a0a; font-weight: 900; letter-spacing: 0.06em; text-transform: uppercase;
-      border-radius: 28px; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
-      box-shadow: inset 0 -4px 0 rgba(0,0,0,0.25), 0 10px 22px rgba(0,0,0,0.35);
+      width: 100%; border: none; cursor: pointer; color: #0a0a0a; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
+      border-radius: 12px; padding: 10px 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px;
+      box-shadow: inset 0 -3px 0 rgba(0,0,0,0.2), 0 8px 16px rgba(0,0,0,0.28);
       transition: transform 120ms ease, filter 120ms ease, box-shadow 120ms ease;
       background: var(--btn-color, var(--accent));
     }
@@ -77,13 +83,60 @@
   </header>
   <div class="lcars-bar"></div>
 
-  <main id="grid"></main>
+  <main>
+    <section class="lcars-card device-column" aria-label="devices">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <div style="font-weight:900">Switches</div>
+        <div class="badge" style="background:var(--accent3)">Local</div>
+      </div>
+      <div id="device-list" class="device-list"></div>
+    </section>
+
+    <section class="lcars-card" aria-label="weather">
+      <div class="weather-header">
+        <div>
+          <div class="weather-title">Weather</div>
+          <div class="weather-sub" id="weather-location">Loading…</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="display:flex;align-items:center;gap:8px;justify-content:flex-end;">
+            <div id="weather-icon" style="font-size:20px;">—</div>
+            <div>
+              <div id="weather-now" style="font-weight:800">—</div>
+              <div id="weather-desc" class="weather-sub">—</div>
+            </div>
+          </div>
+          <div class="weather-sub" id="weather-wind">—</div>
+        </div>
+      </div>
+
+      <div class="chart-wrap">
+        <canvas id="tempChart" height="120"></canvas>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="precipChart" height="120"></canvas>
+      </div>
+    </section>
+  </main>
 
   <footer>
     Tip: add/edit devices in <code>config.json</code> and restart the app.
   </footer>
 
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
+    // Fetch weather from backend API (keeps data fresh)
+    async function fetchWeather() {
+      try {
+        const res = await fetch('/api/weather');
+        if (!res.ok) throw new Error('Weather API error');
+        return await res.json();
+      } catch (e) {
+        console.error('Failed to fetch weather', e);
+        return null;
+      }
+    }
+
     async function fetchDevices() {
       const res = await fetch('/api/devices');
       if (!res.ok) throw new Error('Failed to load devices');
@@ -95,14 +148,14 @@
       const symbol = d.symbol || '⏻';
       const name = d.name || d.ip;
       return `
-        <div class="lcars-card">
+        <div class="lcars-card" style="padding:10px;">
           <div class="status" data-ip="${d.ip}">READY</div>
           <button class="device-btn" style="--btn-color: ${color}" data-ip="${d.ip}">
-            <span class="symbol">${symbol}</span>
-            <span class="label">
+            <span class="label" style="text-align:left">
               <span class="name">${name}</span>
               <span class="ip">${d.ip}</span>
             </span>
+            <span class="symbol">${symbol}</span>
           </button>
         </div>
       `;
@@ -128,21 +181,120 @@
       }
     }
 
-    async function init() {
-      const grid = document.getElementById('grid');
-      const devices = await fetchDevices();
-      grid.innerHTML = devices.map(cardTemplate).join('');
+    function iconForWeathercode(code) {
+      // Very small mapping to emojis — replace with SVG/icons as desired
+      const map = {
+        0: '☀️',
+        1: '🌤️',
+        2: '⛅',
+        3: '☁️',
+        45: '🌫️', 48: '🌫️',
+        51: '🌦️', 53: '🌦️', 55: '🌧️',
+        61: '🌧️', 63: '🌧️', 65: '🌧️',
+        71: '🌨️', 73: '🌨️', 75: '❄️',
+        80: '🌧️', 81: '🌧️', 82: '🌧️',
+        95: '⛈️', 96: '⛈️', 99: '⛈️'
+      };
+      return map[code] || '🌈';
+    }
 
-      grid.querySelectorAll('.device-btn').forEach(btn => {
+    function windDirToCompass(deg) {
+      if (deg === null || deg === undefined) return '';
+      const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+      const ix = Math.round(deg / 22.5) % 16; return dirs[ix];
+    }
+
+    function renderWeather(weather) {
+      const locEl = document.getElementById('weather-location');
+      const nowEl = document.getElementById('weather-now');
+      const weatherIconEl = document.getElementById('weather-icon');
+      const weatherDescEl = document.getElementById('weather-desc');
+      const weatherWindEl = document.getElementById('weather-wind');
+
+      if (!weather) {
+        locEl.textContent = 'Unknown location';
+        nowEl.textContent = 'Weather unavailable';
+        return;
+      }
+
+      locEl.textContent = weather.location_name || 'Forecast';
+
+      // Current weather
+      const cur = weather.current_weather || null;
+      if (cur) {
+        const weatherCode = Number(cur.weathercode ?? cur.code ?? null);
+        const temp = cur.temperature;
+        const wind = cur.windspeed;
+        const winddir = cur.winddirection;
+
+        const icon = iconForWeathercode(weatherCode);
+        if (weatherIconEl) weatherIconEl.textContent = icon;
+        if (nowEl) nowEl.textContent = temp !== undefined ? `${Math.round(Number(temp))}°C` : '—';
+        if (weatherDescEl) weatherDescEl.textContent = '';
+        if (weatherWindEl) weatherWindEl.textContent = wind !== undefined ? `${wind} km/h ${windDirToCompass(Number(winddir))}` : '';
+      } else {
+        nowEl.textContent = '—';
+        if (weatherIconEl) weatherIconEl.textContent = '';
+        if (weatherWindEl) weatherWindEl.textContent = '';
+      }
+
+      // Use only up to 48 points
+      const maxPoints = 48;
+      const times = (weather.times || []).slice(0, maxPoints);
+      const temps = (weather.temperature || []).slice(0, maxPoints);
+      const prec = (weather.precipitation || []).slice(0, maxPoints);
+
+      // labels as local hour strings
+      const labels = times.map(t => {
+        try { return new Date(t).toLocaleString(undefined, { hour: '2-digit', minute: '2-digit' }); } catch(e){ return t; }
+      });
+
+      const tempCtx = document.getElementById('tempChart').getContext('2d');
+      const precipCtx = document.getElementById('precipChart').getContext('2d');
+
+      if (window._tempChart) window._tempChart.destroy();
+      if (window._precipChart) window._precipChart.destroy();
+
+      window._tempChart = new Chart(tempCtx, {
+        type: 'line',
+        data: { labels: labels, datasets: [{ label: 'Temperature (°C)', data: temps, borderColor: 'rgba(255,159,67,0.95)', backgroundColor: 'rgba(255,159,67,0.12)', tension: 0.25, pointRadius: 0, fill: true }] },
+        options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { display: true }, y: { beginAtZero: false } } }
+      });
+
+      window._precipChart = new Chart(precipCtx, {
+        type: 'line',
+        data: { labels: labels, datasets: [{ label: 'Precipitation (mm)', data: prec, borderColor: 'rgba(72,219,251,0.95)', backgroundColor: 'rgba(72,219,251,0.12)', tension: 0.2, pointRadius: 0, fill: true }] },
+        options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { display: true }, y: { beginAtZero: true } } }
+      });
+    }
+
+    async function init() {
+      // populate devices into left column
+      const list = document.getElementById('device-list');
+      const devices = await fetchDevices();
+      list.innerHTML = devices.map(cardTemplate).join('');
+
+      list.querySelectorAll('.device-btn').forEach(btn => {
         const ip = btn.getAttribute('data-ip');
         const statusEl = btn.parentElement.querySelector('.status');
         btn.addEventListener('click', () => toggle(ip, statusEl, btn));
       });
+
+      // fetch and render weather, then refresh periodically
+      try {
+        const w = await fetchWeather();
+        renderWeather(w);
+        // refresh every 5 minutes
+        setInterval(async () => {
+          const nw = await fetchWeather();
+          renderWeather(nw);
+        }, 5 * 60 * 1000);
+      } catch (e) { console.error('Render weather failed', e); }
     }
 
     init().catch(err => {
-      const grid = document.getElementById('grid');
-      grid.innerHTML = `<div style="opacity:.8">Failed to load devices: ${err.message}</div>`;
+      const list = document.getElementById('device-list');
+      list.innerHTML = `<div style="opacity:.8">Failed to load devices: ${err.message}</div>`;
       console.error(err);
     });
   </script>

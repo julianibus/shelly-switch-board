@@ -6,4 +6,6 @@
     {"ip": "192.168.178.34", "name": "Schreibtisch", "color": "#F5CF27", "symbol": "💡"},
     {"ip": "192.168.178.35", "name": "Küche", "color": "#F5CF27", "symbol": "💡"}
   ]
+  ,
+  "location": "Munich, Germany"
 }
