@@ -159,7 +159,93 @@ def shelly_toggle(ip: str) -> Dict[str, Any]:
 
 @app.get("/api/devices")
 def api_devices():
-    return jsonify(CONFIG["devices"])
+    # Return devices with an additional 'state' field (True=on, False=off, None=unknown)
+    devices = []
+    for d in CONFIG.get("devices", []):
+        ip = d.get("ip")
+        state = None
+        if ip:
+            try:
+                state = shelly_get_state(ip)
+            except Exception:
+                state = None
+        dd = dict(d)
+        dd["state"] = state
+        devices.append(dd)
+    return jsonify(devices)
+
+
+def shelly_get_state(ip: str) -> bool | None:
+    """Try to determine whether relay 0 is on for a Shelly device.
+
+    Returns True, False, or None if unknown/error.
+    This tries several common endpoints for Shelly Gen1/Gen2 devices.
+    """
+    # Try Gen1 status endpoint
+    urls = [f"http://{ip}/status", f"http://{ip}/relay/0", f"http://{ip}/rpc/Switch.GetStatus?id=0", f"http://{ip}/rpc/Switch.GetStatus"]
+    for url in urls:
+        try:
+            r = requests.get(url, timeout=TIMEOUT)
+            if not r.ok:
+                continue
+            try:
+                j = r.json()
+            except Exception:
+                # some endpoints might return plain text
+                text = r.text.strip().lower()
+                if text in ("on", "true", "1"):
+                    return True
+                if text in ("off", "false", "0"):
+                    return False
+                continue
+
+            # parse common shapes
+            # shape: { "relays": [ { "ison": true } ] }
+            relays = j.get("relays") if isinstance(j, dict) else None
+            if isinstance(relays, list) and relays:
+                first = relays[0]
+                if isinstance(first, dict) and "ison" in first:
+                    return bool(first.get("ison"))
+
+            # shape: { "ison": true }
+            if isinstance(j, dict) and "ison" in j:
+                return bool(j.get("ison"))
+
+            # Gen2 rpc may return { "ison": true } or nested
+            if isinstance(j, dict) and "power" in j:
+                # sometimes 'power' is numeric >0
+                try:
+                    return float(j.get("power", 0)) > 0
+                except Exception:
+                    pass
+
+            # Try other common keys
+            if isinstance(j, dict) and "output" in j:
+                return bool(j.get("output"))
+
+            # Fallback: search recursively for a boolean 'ison' key
+            def find_ison(obj):
+                if isinstance(obj, dict):
+                    for k, v in obj.items():
+                        if k == "ison" and isinstance(v, bool):
+                            return v
+                        res = find_ison(v)
+                        if res is not None:
+                            return res
+                if isinstance(obj, list):
+                    for item in obj:
+                        res = find_ison(item)
+                        if res is not None:
+                            return res
+                return None
+
+            res = find_ison(j)
+            if res is not None:
+                return bool(res)
+
+        except Exception:
+            continue
+    return None
 
 @app.post("/api/toggle")
 def api_toggle():

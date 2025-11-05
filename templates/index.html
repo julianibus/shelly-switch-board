@@ -76,14 +76,7 @@
             <div class="weather-sub weather-meta" id="weather-location">Loading…</div>
         </div>
         <div style="text-align:right;">
-          <div style="display:flex;align-items:center;gap:8px;justify-content:flex-end;">
-            <div id="weather-icon" style="font-size:20px;">—</div>
-            <div>
-              <div id="weather-now" style="font-weight:800">—</div>
-              <div id="weather-desc" class="weather-sub">—</div>
-            </div>
-          </div>
-          <div class="weather-sub" id="weather-wind">—</div>
+          <div class="weather-meta" id="weather-updated">—</div>
         </div>
       </div>
 
@@ -98,7 +91,6 @@
           </div>
           <div style="margin-left:auto;text-align:right">
             <div id="weather-wind" class="weather-meta">—</div>
-            <div class="weather-meta" id="weather-updated"></div>
           </div>
         </div>
 
@@ -143,38 +135,57 @@
       const color = d.color || '#FF9F43';
       const symbol = d.symbol || '⏻';
       const name = d.name || d.ip;
+      const state = d.state === true ? 'on' : (d.state === false ? 'off' : 'unknown');
+      // visual styles: if on, use configured color; if off, use translucent background
+      const bg = state === 'on' ? color : 'transparent';
+      const textColor = state === 'on' ? '#061018' : 'var(--fg)';
+      const border = state === 'on' ? 'none' : '1px solid rgba(255,255,255,0.04)';
+      const dot = state === 'on' ? `<span class="dot" style="width:12px;height:12px;border-radius:50%;background:${color};display:inline-block;margin-right:8px;box-shadow:0 2px 6px ${color}33"></span>` : `<span class="dot" style="width:12px;height:12px;border-radius:50%;background:transparent;border:1px solid rgba(255,255,255,0.06);display:inline-block;margin-right:8px"></span>`;
       return `
-        <div class="lcars-card" style="padding:10px;">
-          <div class="status" data-ip="${d.ip}">READY</div>
-          <button class="device-btn" style="--btn-color: ${color}" data-ip="${d.ip}">
-            <span class="label" style="text-align:left">
-              <span class="name">${name}</span>
-              <span class="ip">${d.ip}</span>
-            </span>
-            <span class="symbol">${symbol}</span>
+        <div class="lcars-card" style="padding:8px;">
+          <button class="device-btn" data-ip="${d.ip}" style="background:${bg}; color:${textColor}; border:${border}">
+            <div style="display:flex;align-items:center;gap:10px">
+              ${dot}
+              <div style="text-align:left">
+                <div class="device-name">${name}</div>
+              </div>
+            </div>
+            <div class="symbol">${symbol}</div>
           </button>
         </div>
       `;
     }
 
-    async function toggle(ip, statusEl, btnEl) {
+    async function toggle(ip, btnEl) {
       try {
-        statusEl.textContent = 'SENDING';
         btnEl.disabled = true;
+        // send toggle request
         const res = await fetch('/api/toggle', {
           method: 'POST', headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({ ip })
         });
         const data = await res.json();
         if (!res.ok || !data.ok) throw new Error(data.error || 'Toggle failed');
-        statusEl.textContent = 'TOGGLED';
-        setTimeout(() => statusEl.textContent = 'READY', 1000);
+        // refresh device list to get updated states
+        await fetchAndRenderDevices();
       } catch (e) {
-        statusEl.textContent = 'ERROR';
         console.error(e);
       } finally {
         btnEl.disabled = false;
       }
+    }
+
+    // render device list from fetched devices
+    async function fetchAndRenderDevices() {
+      const list = document.getElementById('device-list');
+      const devices = await fetchDevices();
+      list.innerHTML = devices.map(cardTemplate).join('');
+
+      // attach listeners
+      list.querySelectorAll('.device-btn').forEach(btn => {
+        const ip = btn.getAttribute('data-ip');
+        btn.addEventListener('click', () => toggle(ip, btn));
+      });
     }
 
     function iconForWeathercode(code) {
@@ -300,16 +311,10 @@
     }
 
     async function init() {
-      // populate devices into left column
-      const list = document.getElementById('device-list');
-      const devices = await fetchDevices();
-      list.innerHTML = devices.map(cardTemplate).join('');
-
-      list.querySelectorAll('.device-btn').forEach(btn => {
-        const ip = btn.getAttribute('data-ip');
-        const statusEl = btn.parentElement.querySelector('.status');
-        btn.addEventListener('click', () => toggle(ip, statusEl, btn));
-      });
+      // populate devices into left column (and refresh periodically)
+      await fetchAndRenderDevices();
+      // refresh device states every 60 seconds
+      setInterval(fetchAndRenderDevices, 60 * 1000);
 
       // fetch and render weather, then refresh periodically
       try {
