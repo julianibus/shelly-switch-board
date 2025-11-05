@@ -5,76 +5,53 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{{ title }}</title>
   <style>
-    :root {
-      --bg: #0b0f1a;
-      --fg: #f7f7f7;
-      --panel: #1b2030;
-      --accent: #ff9f43;
-      --accent2: #e66767;
-      --accent3: #48dbfb;
-      --muted: #99a3b3;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0; background: radial-gradient(1200px 800px at 10% 10%, #12182a 0%, var(--bg) 60%);
-      color: var(--fg); font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, "Helvetica Neue", Arial;
-      min-height: 100vh; display: flex; flex-direction: column;
-    }
-    header {
-      padding: 24px 20px 8px; display: flex; align-items: baseline; gap: 16px;
-    }
-    .title { font-size: 28px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
-    .badge { font-size: 12px; padding: 6px 10px; border-radius: 999px; background: var(--accent3); color: #061018; font-weight: 700; letter-spacing: 0.08em; }
-
-    .lcars-bar {
-      height: 14px; background: linear-gradient(90deg, var(--accent), var(--accent2));
-      border-top-right-radius: 28px; border-bottom-right-radius: 28px; width: 42%; margin-left: 12px;
-      box-shadow: 0 0 24px rgba(255, 159, 67, 0.25);
+    :root{
+      --bg:#0b0f14; --card:#0f1720; --muted:#94a3b8; --accent:#6ee7b7; --accent2:#60a5fa; --danger:#fb7185; --glass: rgba(255,255,255,0.03);
+      --fg:#e6eef8; --surface:#111827;
+      --radius:14px;
     }
 
-    main {
-      flex: 1; padding: 24px; display: grid; grid-template-columns: 420px 1fr; gap: 18px; align-items: start;
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      background: linear-gradient(180deg,#05060a 0%, #0b0f14 60%); color:var(--fg); -webkit-font-smoothing:antialiased;
+      display:flex; flex-direction:column; min-height:100vh;
     }
 
-    /* Responsive fallback */
-    @media (max-width: 900px) {
-      main { grid-template-columns: 1fr; }
-    }
+    header{ display:flex; align-items:center; justify-content:space-between; padding:18px 28px; gap:12px }
+    .title{ font-weight:700; font-size:20px; letter-spacing:0.02em }
+    .subtitle{ color:var(--muted); font-size:13px }
 
-    .lcars-card {
-      position: relative; background: var(--panel); border-radius: 28px; padding: 18px; overflow: hidden;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.04);
-    }
-    .lcars-card::before {
-      content: ""; position: absolute; inset: -60px -60px auto auto; width: 160px; height: 160px; border-radius: 0 0 0 120px; opacity: 0.3; filter: blur(0.5px);
-      background: var(--accent);
-      transform: rotate(45deg);
-    }
+  main{flex:1; display:grid; grid-template-columns:360px 1fr; gap:20px; padding:20px 28px; height: calc(100vh - 96px)}
+    @media (max-width:900px){ main{grid-template-columns:1fr} }
 
-    /* Compact device button for left column */
-    .device-btn {
-      width: 100%; border: none; cursor: pointer; color: #0a0a0a; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
-      border-radius: 12px; padding: 10px 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px;
-      box-shadow: inset 0 -3px 0 rgba(0,0,0,0.2), 0 8px 16px rgba(0,0,0,0.28);
-      transition: transform 120ms ease, filter 120ms ease, box-shadow 120ms ease;
-      background: var(--btn-color, var(--accent));
-    }
-    .device-btn:hover { transform: translateY(-1px); filter: brightness(1.06); }
-    .device-btn:active { transform: translateY(1px); filter: brightness(0.95); box-shadow: inset 0 3px 0 rgba(0,0,0,0.35); }
+    .card{background:linear-gradient(180deg,var(--card), #0b1726); border-radius:var(--radius); padding:18px; box-shadow:0 6px 24px rgba(2,6,23,0.6); border:1px solid rgba(255,255,255,0.03)}
 
-    .symbol { font-size: 28px; filter: drop-shadow(0 1px 0 rgba(0,0,0,.15)); }
-    .label { display: grid; gap: 4px; text-align: right; }
-    .name { font-size: 16px; }
-    .ip { font-size: 12px; opacity: 0.85; }
+    /* device list */
+    .device-column{display:flex; flex-direction:column; gap:12px}
+    .device-list{display:flex; flex-direction:column; gap:8px}
+    .device-btn{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; border-radius:10px; border:none; cursor:pointer; background:var(--glass); color:var(--fg); transition:transform .12s, box-shadow .12s}
+    .device-btn:hover{transform:translateY(-4px); box-shadow:0 8px 20px rgba(2,6,23,0.5)}
+    .device-name{font-weight:600}
+    .device-ip{font-size:12px; color:var(--muted)}
 
-    .status {
-      position: absolute; right: 14px; top: 14px; font-size: 11px; padding: 4px 8px; border-radius: 999px; color: #061018; background: #ffd166; font-weight: 800;
-      letter-spacing: 0.08em;
-    }
+    /* weather */
+    .weather-header{display:flex; justify-content:space-between; align-items:center}
+    .weather-left{display:flex; gap:12px; align-items:center}
+    .weather-icon{font-size:28px}
+    .weather-now{font-size:22px; font-weight:700}
+    .weather-meta{color:var(--muted); font-size:13px}
+   /* Charts container: allow proper flexbox shrinking (min-height:0 avoids overflow)
+     and make the weather card use column flex layout so charts can share vertical space */
+   section[aria-label="weather"]{display:flex; flex-direction:column; min-height:0}
+   .charts{display:flex; flex-direction:column; gap:12px; margin-top:12px; flex:1; min-height:0}
+   .chart-wrap{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); padding:12px; border-radius:10px; display:flex; flex-direction:column; min-height:0}
+   .chart-wrap canvas{width:100% !important; height:100% !important; display:block}
+   /* make the two main charts share vertical space and stretch to the bottom; ensure they can shrink */
+   .chart-wrap.flex-grow{flex:1; min-height:0}
 
-    footer {
-      padding: 14px 20px 24px; color: var(--muted); font-size: 12px; text-align: center;
-    }
+    footer{padding:14px 28px; color:var(--muted); font-size:13px; text-align:center}
   </style>
 </head>
 <body>
@@ -95,8 +72,8 @@
     <section class="lcars-card" aria-label="weather">
       <div class="weather-header">
         <div>
-          <div class="weather-title">Weather</div>
-          <div class="weather-sub" id="weather-location">Loading…</div>
+            <div class="weather-title">Weather</div>
+            <div class="weather-sub weather-meta" id="weather-location">Loading…</div>
         </div>
         <div style="text-align:right;">
           <div style="display:flex;align-items:center;gap:8px;justify-content:flex-end;">
@@ -110,11 +87,30 @@
         </div>
       </div>
 
-      <div class="chart-wrap">
-        <canvas id="tempChart" height="120"></canvas>
-      </div>
-      <div class="chart-wrap">
-        <canvas id="precipChart" height="120"></canvas>
+      <div class="charts">
+        <div style="display:flex;align-items:center;gap:14px;margin-top:10px">
+          <div class="weather-left">
+            <div id="weather-icon" class="weather-icon">—</div>
+            <div>
+              <div id="weather-now" class="weather-now">—</div>
+              <div id="weather-desc" class="weather-meta">—</div>
+            </div>
+          </div>
+          <div style="margin-left:auto;text-align:right">
+            <div id="weather-wind" class="weather-meta">—</div>
+            <div class="weather-meta" id="weather-updated"></div>
+          </div>
+        </div>
+
+        <div class="chart-wrap flex-grow">
+          <canvas id="tempChart"></canvas>
+        </div>
+        <div class="chart-wrap flex-grow">
+          <canvas id="precipChart"></canvas>
+        </div>
+        <div class="chart-wrap" style="height:120px">
+          <canvas id="cloudChart"></canvas>
+        </div>
       </div>
     </section>
   </main>
@@ -210,6 +206,7 @@
       const weatherIconEl = document.getElementById('weather-icon');
       const weatherDescEl = document.getElementById('weather-desc');
       const weatherWindEl = document.getElementById('weather-wind');
+      const updatedEl = document.getElementById('weather-updated');
 
       if (!weather) {
         locEl.textContent = 'Unknown location';
@@ -238,11 +235,36 @@
         if (weatherWindEl) weatherWindEl.textContent = '';
       }
 
-      // Use only up to 48 points
+      // Use only up to 48 points (backend should already return the correct window)
       const maxPoints = 48;
-      const times = (weather.times || []).slice(0, maxPoints);
-      const temps = (weather.temperature || []).slice(0, maxPoints);
-      const prec = (weather.precipitation || []).slice(0, maxPoints);
+      let times = (weather.times || []).slice(0, maxPoints);
+      let temps = (weather.temperature || []).slice(0, maxPoints);
+      let prec = (weather.precipitation || []).slice(0, maxPoints);
+      let clouds = (weather.cloudcover || []).slice(0, maxPoints);
+
+      // Ensure the axis starts at the current time. If the backend's first hourly timestamp
+      // doesn't equal the current_weather time, insert a 'now' point using current_weather
+      // so charts visually start at the exact current moment.
+      try {
+        const cur = weather.current_weather || null;
+        if (cur && cur.time) {
+          const nowISO = cur.time; // Open-Meteo current_weather.time is ISO
+          // If times is empty or doesn't start at nowISO, prepend current values
+          if (!times.length || times[0] !== nowISO) {
+            // use current temperature if available
+            const nowTemp = cur.temperature !== undefined ? Number(cur.temperature) : (temps[0] !== undefined ? Number(temps[0]) : null);
+            const nowPrec = (prec[0] !== undefined) ? Number(prec[0]) : 0;
+            const nowCloud = (clouds[0] !== undefined) ? Number(clouds[0]) : null;
+            // Prepend
+            times = [nowISO].concat(times).slice(0, maxPoints);
+            temps = (nowTemp === null ? temps : [nowTemp].concat(temps)).slice(0, maxPoints);
+            prec = [nowPrec].concat(prec).slice(0, maxPoints);
+            clouds = (nowCloud === null ? clouds : [nowCloud].concat(clouds)).slice(0, maxPoints);
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to stitch now into series', e);
+      }
 
       // labels as local hour strings
       const labels = times.map(t => {
@@ -250,7 +272,8 @@
       });
 
       const tempCtx = document.getElementById('tempChart').getContext('2d');
-      const precipCtx = document.getElementById('precipChart').getContext('2d');
+  const precipCtx = document.getElementById('precipChart').getContext('2d');
+  const cloudCtx = document.getElementById('cloudChart').getContext('2d');
 
       if (window._tempChart) window._tempChart.destroy();
       if (window._precipChart) window._precipChart.destroy();
@@ -258,14 +281,22 @@
       window._tempChart = new Chart(tempCtx, {
         type: 'line',
         data: { labels: labels, datasets: [{ label: 'Temperature (°C)', data: temps, borderColor: 'rgba(255,159,67,0.95)', backgroundColor: 'rgba(255,159,67,0.12)', tension: 0.25, pointRadius: 0, fill: true }] },
-        options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { display: true }, y: { beginAtZero: false } } }
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false, grid: { display: false } }, y: { beginAtZero: false } } }
       });
 
       window._precipChart = new Chart(precipCtx, {
         type: 'line',
-        data: { labels: labels, datasets: [{ label: 'Precipitation (mm)', data: prec, borderColor: 'rgba(72,219,251,0.95)', backgroundColor: 'rgba(72,219,251,0.12)', tension: 0.2, pointRadius: 0, fill: true }] },
-        options: { responsive: true, plugins: { legend: { display: false } }, scales: { x: { display: true }, y: { beginAtZero: true } } }
+        data: { labels: labels, datasets: [{ label: 'Precipitation (mm)', data: prec, borderColor: 'rgba(96,165,250,0.95)', backgroundColor: 'rgba(96,165,250,0.08)', tension: 0.24, pointRadius: 0, fill: true }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false, grid: { display: false } }, y: { beginAtZero: true } } }
       });
+
+      window._cloudChart = new Chart(cloudCtx, {
+        type: 'line',
+        data: { labels: labels, datasets: [{ label: 'Cloud cover (%)', data: clouds, borderColor: 'rgba(148,163,184,0.95)', backgroundColor: 'rgba(148,163,184,0.06)', tension: 0.2, pointRadius: 0, fill: true }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: true }, y: { beginAtZero: true, max: 100 } } }
+      });
+
+      if (updatedEl) updatedEl.textContent = (new Date()).toLocaleString();
     }
 
     async function init() {

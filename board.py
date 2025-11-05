@@ -83,28 +83,43 @@ def get_weather_for_location(query: str, hours: int = 48) -> Dict[str, Any]:
     lon = ge["longitude"]
     location_name = f"{ge.get('name')}, {ge.get('country') or ''}".strip(', ')
 
-    # Request next 2 days (48h) of hourly forecast. Use Europe/Berlin timezone for Munich/local times.
+    # Build start/end anchored to the current UTC hour to guarantee the payload starts at "now".
+    now_utc = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    start = now_utc.isoformat()
+    end = (now_utc + timedelta(hours=hours)).isoformat()
+
+    # Request hourly temperature, precipitation and cloud cover. Use UTC timezone so times are consistent.
     params = {
         "latitude": lat,
         "longitude": lon,
-        "hourly": "temperature_2m,precipitation",
-        "forecast_days": 2,
+        "hourly": "temperature_2m,precipitation,cloudcover",
+        "start": start,
+        "end": end,
         "current_weather": True,
-        "timezone": "Europe/Berlin",
+        "timezone": "UTC",
     }
 
     try:
-        r = requests.get(FORECAST_URL, params=params, timeout=8)
+        r = requests.get(FORECAST_URL, params=params, timeout=10)
         r.raise_for_status()
         j = r.json()
         hourly = j.get("hourly", {})
+        # API should already limit to the requested range via start/end. Still slice defensively.
         times = hourly.get("time", [])[:hours]
         temps = hourly.get("temperature_2m", [])[:hours]
         prec = hourly.get("precipitation", [])[:hours]
-        current = j.get("current_weather") or {}
-        return {"location_name": location_name, "times": times, "temperature": temps, "precipitation": prec, "current_weather": current}
+        clouds = hourly.get("cloudcover", [])[:hours]
+        current = j.get("current_weather") or None
+        return {
+            "location_name": location_name,
+            "times": times,
+            "temperature": temps,
+            "precipitation": prec,
+            "cloudcover": clouds,
+            "current_weather": current,
+        }
     except Exception as e:
-        return {"location_name": location_name, "times": [], "temperature": [], "precipitation": [], "current_weather": None, "error": str(e)}
+        return {"location_name": location_name, "times": [], "temperature": [], "precipitation": [], "cloudcover": [], "current_weather": None, "error": str(e)}
 
 # ------------------------
 # Shelly helpers
