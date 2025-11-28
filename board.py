@@ -89,10 +89,12 @@ def get_weather_for_location(query: str, hours: int = 48) -> Dict[str, Any]:
     end = (now_utc + timedelta(hours=hours)).isoformat()
 
     # Request hourly temperature, precipitation and cloud cover. Use UTC timezone so times are consistent.
+    # Request hourly temperature, precipitation and cloud cover, and daily sunrise/sunset
     params = {
         "latitude": lat,
         "longitude": lon,
         "hourly": "temperature_2m,precipitation,cloudcover",
+        "daily": "sunrise,sunset",
         "start": start,
         "end": end,
         "current_weather": True,
@@ -110,6 +112,10 @@ def get_weather_for_location(query: str, hours: int = 48) -> Dict[str, Any]:
         prec = hourly.get("precipitation", [])[:hours]
         clouds = hourly.get("cloudcover", [])[:hours]
         current = j.get("current_weather") or None
+        # daily sunrise/sunset (arrays of ISO datetimes in UTC)
+        daily = j.get("daily") or {}
+        sunrises = daily.get("sunrise", [])
+        sunsets = daily.get("sunset", [])
         return {
             "location_name": location_name,
             "times": times,
@@ -117,6 +123,8 @@ def get_weather_for_location(query: str, hours: int = 48) -> Dict[str, Any]:
             "precipitation": prec,
             "cloudcover": clouds,
             "current_weather": current,
+            "sunrise": sunrises,
+            "sunset": sunsets,
         }
     except Exception as e:
         return {"location_name": location_name, "times": [], "temperature": [], "precipitation": [], "cloudcover": [], "current_weather": None, "error": str(e)}

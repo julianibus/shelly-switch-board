@@ -105,7 +105,7 @@
         <div class="chart-wrap flex-grow">
           <canvas id="precipChart"></canvas>
         </div>
-        <div class="chart-wrap" style="height:120px">
+        <div class="chart-wrap" style="height:180px">
           <canvas id="cloudChart"></canvas>
         </div>
       </div>
@@ -331,10 +331,145 @@
 
       if (window._tempChart) window._tempChart.destroy();
       if (window._precipChart) window._precipChart.destroy();
+      if (window._cloudChart) window._cloudChart.destroy();
+
+      // Temperature chart with gradient color map tied to actual temperature values
+  // Use fixed mapping: violet -> -10°C, red -> 35°C
+  const FIXED_MIN = -10;
+  const FIXED_MAX = 35;
+  const tempGradient = tempCtx.createLinearGradient(0, tempCtx.canvas.height, 0, 0);
+
+      // Color palette from very cold (violet) -> hot (red)
+      const palette = ['#7e00ff', '#0000ff', '#00ffff', '#00ff00', '#ffff00', '#ff0000'];
+
+      function hexToRgb(hex) {
+        const m = hex.replace('#','');
+        return [parseInt(m.substring(0,2),16), parseInt(m.substring(2,4),16), parseInt(m.substring(4,6),16)];
+      }
+
+      function rgbToCss(rgb, a=1){ return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${a})`; }
+
+      function lerp(a, b, t){ return Math.round(a + (b - a) * t); }
+
+      function interpColor(c1, c2, t){
+        const r1 = hexToRgb(c1); const r2 = hexToRgb(c2);
+        return `rgb(${lerp(r1[0], r2[0], t)}, ${lerp(r1[1], r2[1], t)}, ${lerp(r1[2], r2[2], t)})`;
+      }
+
+      function colorForTemp(temp){
+        if (temp === null || temp === undefined) return palette[Math.floor(palette.length/2)];
+        // clamp to fixed range
+        const clamped = Math.max(FIXED_MIN, Math.min(FIXED_MAX, Number(temp)));
+        if (FIXED_MAX === FIXED_MIN) return palette[Math.floor(palette.length/2)];
+        const norm = (clamped - FIXED_MIN) / (FIXED_MAX - FIXED_MIN); // 0..1
+        const scaled = norm * (palette.length - 1);
+        const idx = Math.floor(scaled);
+        const t = scaled - idx;
+        const c1 = palette[idx];
+        const c2 = palette[Math.min(idx + 1, palette.length - 1)];
+        return interpColor(c1, c2, t);
+      }
+
+      // Create gradient stops at positions that correspond to the actual temperature values
+      // Build gradient: anchor endpoints at FIXED_MIN/FIXED_MAX but concentrate stops around the
+      // data distribution so the visible gradient reflects the current temps.
+      const tempsFiltered = temps.filter(t => t !== null && t !== undefined).map(Number).sort((a,b)=>a-b);
+      // gradientStops will be used by the chart background generator; compute once here
+      let gradientStops = [];
+      if (tempsFiltered.length === 0) {
+        // no data: just anchor endpoints
+        gradientStops = [FIXED_MIN, FIXED_MAX];
+      } else {
+        const dataMin = tempsFiltered[0];
+        const dataMax = tempsFiltered[tempsFiltered.length - 1];
+
+        // helper to compute quartiles
+        const q = (arr, p) => {
+          if (arr.length === 1) return arr[0];
+          const idx = (arr.length - 1) * p;
+          const lo = Math.floor(idx);
+          const hi = Math.ceil(idx);
+          if (lo === hi) return arr[lo];
+          return arr[lo] + (arr[hi] - arr[lo]) * (idx - lo);
+        };
+
+        gradientStops.push(dataMin);
+        if (tempsFiltered.length > 2) {
+          gradientStops.push(q(tempsFiltered, 0.25));
+          gradientStops.push(q(tempsFiltered, 0.5));
+          gradientStops.push(q(tempsFiltered, 0.75));
+        }
+        gradientStops.push(dataMax);
+
+        // ensure endpoints included
+        gradientStops = Array.from(new Set(gradientStops.concat([FIXED_MIN, FIXED_MAX]))).sort((a,b)=>a-b);
+      }
+      // Now add the color stops to the initially-created tempGradient for fallback use
+      tempGradient.addColorStop(0, colorForTemp(FIXED_MIN));
+      gradientStops.forEach(t => {
+        const clamped = Math.max(FIXED_MIN, Math.min(FIXED_MAX, Number(t)));
+        const pos = Math.max(0, Math.min(1, (clamped - FIXED_MIN) / (FIXED_MAX - FIXED_MIN)));
+        tempGradient.addColorStop(pos, colorForTemp(clamped));
+      });
+      tempGradient.addColorStop(1, colorForTemp(FIXED_MAX));
 
       window._tempChart = new Chart(tempCtx, {
         type: 'line',
-        data: { labels: labels, datasets: [{ label: 'Temperature (°C)', data: temps, borderColor: 'rgba(255,159,67,0.95)', backgroundColor: 'rgba(255,159,67,0.12)', tension: 0.25, pointRadius: 0, fill: true }] },
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Temperature (°C)',
+            data: temps,
+            borderColor: 'rgba(255,255,255,0.9)',
+            backgroundColor: function(context) {
+              const chart = context.chart;
+              const {ctx, chartArea} = chart;
+              if (!chartArea) return tempGradient; // fallback until layout ready
+
+              // compute data min/max from the filtered temps available in outer scope
+              const dataMin = (typeof tempsFiltered !== 'undefined' && tempsFiltered.length > 0) ? tempsFiltered[0] : FIXED_MIN;
+              const dataMax = (typeof tempsFiltered !== 'undefined' && tempsFiltered.length > 0) ? tempsFiltered[tempsFiltered.length - 1] : FIXED_MAX;
+
+              const g = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
+
+              // If no range, fill with a single color
+              if (dataMax === dataMin) {
+                const c = colorForTemp(dataMin);
+                g.addColorStop(0, c);
+                g.addColorStop(1, c);
+                return g;
+              }
+
+              // Positions in 0..1 relative to fixed mapping
+              const clamp = v => Math.max(FIXED_MIN, Math.min(FIXED_MAX, Number(v)));
+              const toPos = v => (clamp(v) - FIXED_MIN) / (FIXED_MAX - FIXED_MIN);
+              const minPos = Math.max(0, Math.min(1, toPos(dataMin)));
+              const maxPos = Math.max(0, Math.min(1, toPos(dataMax)));
+
+              // Make area below dataMin a solid dataMin color, and above dataMax solid dataMax color.
+              g.addColorStop(0, colorForTemp(dataMin));
+              g.addColorStop(minPos, colorForTemp(dataMin));
+
+              // Create a smooth continuous gradient between dataMin and dataMax by sampling
+              // the color function at many positions. This avoids banding from sparse stops.
+              const STEPS = 128;
+              const range = Math.max(1e-6, maxPos - minPos);
+              for (let i = 0; i < STEPS; i++) {
+                const frac = i / (STEPS - 1);
+                const pos = minPos + frac * range;
+                const tempAtPos = FIXED_MIN + pos * (FIXED_MAX - FIXED_MIN);
+                g.addColorStop(pos, colorForTemp(tempAtPos));
+              }
+
+              g.addColorStop(maxPos, colorForTemp(dataMax));
+              g.addColorStop(1, colorForTemp(dataMax));
+              return g;
+            },
+            tension: 0.25,
+            pointRadius: 0,
+            fill: true
+          }]
+        },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false, grid: { display: false } }, y: { beginAtZero: false, ticks: { font: { size: 24 } } } } }
       });
 
@@ -344,11 +479,105 @@
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false, grid: { display: false } }, y: { beginAtZero: true, ticks: { font: { size: 24 } } } } }
       });
 
-      window._cloudChart = new Chart(cloudCtx, {
-        type: 'line',
-        data: { labels: labels, datasets: [{ label: 'Cloud cover (%)', data: clouds, borderColor: 'rgba(148,163,184,0.95)', backgroundColor: 'rgba(148,163,184,0.06)', tension: 0.2, pointRadius: 0, fill: true }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: true, ticks: { font: { size: 26 } } }, y: { beginAtZero: true, max: 100, ticks: { font: { size: 24 } } } } }
+      // Cloud coverage as horizontal bar chart with day/night awareness
+      // Estimate day/night: assume sun is up 6am-6pm (simple heuristic)
+      const cloudBackgroundColors = times.map((t, idx) => {
+        const coverage = clouds[idx] !== undefined ? Math.max(0, Math.min(100, clouds[idx])) / 100 : 0.5;
+        const date = new Date(t);
+        const hour = date.getHours();
+        const isDaytime = hour >= 6 && hour < 18;
+        
+        if (isDaytime) {
+          // Daytime: light blue (no coverage) to white (full coverage)
+          const r = Math.round(173 + (255 - 173) * coverage);
+          const g = Math.round(216 + (255 - 216) * coverage);
+          const b = Math.round(230 + (255 - 230) * coverage);
+          return `rgba(${r}, ${g}, ${b}, ${0.5 + 0.5 * coverage})`;
+        } else {
+          // Nighttime: black (no coverage) to dark grey (full coverage)
+          const val = Math.round(20 + 80 * coverage);
+          return `rgba(${val}, ${val}, ${val}, ${0.3 + 0.7 * coverage})`;
+        }
       });
+
+      window._cloudChart = new Chart(cloudCtx, {
+        type: 'bar',
+        data: { 
+          labels: labels, 
+          datasets: [{ 
+            label: 'Cloud cover (%)', 
+            data: clouds.map(c => c !== undefined ? Math.max(0, Math.min(100, c)) : 50),
+            backgroundColor: cloudBackgroundColors,
+            borderColor: 'rgba(148,163,184,0.2)',
+            borderWidth: 0,
+            barThickness: 'flex'
+          }] 
+        },
+        options: { 
+          indexAxis: 'x',
+          responsive: true, 
+          maintainAspectRatio: false, 
+          plugins: { legend: { display: false } }, 
+          scales: { 
+            x: { display: true, ticks: { font: { size: 24 } }, max: 100, min: 0 }, 
+            y: { display: true, ticks: { font: { size: 20 } } } 
+          } 
+        }
+      });
+
+      // Draw sunrise/sunset markers on each chart (vertical lines at the appropriate time)
+      function drawTimeMarkerOnChart(chart, isoTime, label, color) {
+        try {
+          if (!isoTime) return;
+          const tMs = new Date(isoTime).getTime();
+          if (isNaN(tMs)) return;
+          // find index in times array closest to isoTime
+          let idx = times.findIndex(tt => new Date(tt).getTime() >= tMs);
+          if (idx === -1) {
+            // if not found, skip
+            return;
+          }
+          const chartArea = chart.chartArea || chart._metasets && chart._metasets[0] && chart._metasets[0].chart.chartArea;
+          if (!chartArea) return;
+          const left = chartArea.left, right = chartArea.right;
+          const frac = (labels.length > 1) ? (idx / (labels.length - 1)) : 0.5;
+          const x = left + frac * (right - left);
+
+          const ctx = chart.ctx;
+          ctx.save();
+          ctx.beginPath();
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 2;
+          ctx.setLineDash([6,4]);
+          ctx.moveTo(x, chartArea.top);
+          ctx.lineTo(x, chartArea.bottom);
+          ctx.stroke();
+
+          // label at top
+          ctx.fillStyle = color;
+          ctx.font = '600 14px Inter, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(label, x, chartArea.top + 16);
+          ctx.restore();
+        } catch (e) { console.warn('drawTimeMarkerOnChart failed', e); }
+      }
+
+      // helper to draw all markers from arrays returned by backend
+      try {
+        const sunrises = (weather.sunrise || []).slice();
+        const sunsets = (weather.sunset || []).slice();
+        // draw on temp, precip and cloud charts
+        for (const sr of sunrises) {
+          drawTimeMarkerOnChart(window._tempChart, sr, 'Sunrise', 'rgba(255,223,102,0.95)');
+          drawTimeMarkerOnChart(window._precipChart, sr, 'Sunrise', 'rgba(255,223,102,0.95)');
+          drawTimeMarkerOnChart(window._cloudChart, sr, 'Sunrise', 'rgba(255,223,102,0.95)');
+        }
+        for (const ss of sunsets) {
+          drawTimeMarkerOnChart(window._tempChart, ss, 'Sunset', 'rgba(255,143,66,0.95)');
+          drawTimeMarkerOnChart(window._precipChart, ss, 'Sunset', 'rgba(255,143,66,0.95)');
+          drawTimeMarkerOnChart(window._cloudChart, ss, 'Sunset', 'rgba(255,143,66,0.95)');
+        }
+      } catch (e) { console.warn('Failed to draw sun markers', e); }
 
       if (updatedEl) updatedEl.textContent = (new Date()).toLocaleString();
     }
@@ -371,7 +600,7 @@
         setInterval(async () => {
           const nw = await fetchWeather();
           renderWeather(nw);
-        }, 60 * 1000);
+        }, 900 * 1000);
       } catch (e) { console.error('Render weather failed', e); }
     }
 
