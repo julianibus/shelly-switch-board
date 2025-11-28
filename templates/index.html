@@ -20,8 +20,8 @@
     }
 
     header{ display:flex; align-items:center; justify-content:space-between; padding:18px 28px; gap:12px }
-    .title{ font-weight:700; font-size:20px; letter-spacing:0.02em }
-    .subtitle{ color:var(--muted); font-size:13px }
+    .title{ font-weight:700; font-size:40px; letter-spacing:0.02em }
+    .subtitle{ color:var(--muted); font-size:26px }
 
   main{flex:1; display:grid; grid-template-columns:360px 1fr; gap:20px; padding:20px 28px; height: calc(100vh - 96px)}
     @media (max-width:900px){ main{grid-template-columns:1fr} }
@@ -31,17 +31,24 @@
     /* device list */
     .device-column{display:flex; flex-direction:column; gap:12px}
     .device-list{display:flex; flex-direction:column; gap:8px}
-    .device-btn{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; border-radius:10px; border:none; cursor:pointer; background:var(--glass); color:var(--fg); transition:transform .12s, box-shadow .12s}
+    .device-btn{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 16px; border-radius:10px; border:none; cursor:pointer; background:var(--glass); color:var(--fg); transition:transform .12s, box-shadow .12s; min-height:78px; width:100%; font-size:32px}
     .device-btn:hover{transform:translateY(-4px); box-shadow:0 8px 20px rgba(2,6,23,0.5)}
-    .device-name{font-weight:600}
-    .device-ip{font-size:12px; color:var(--muted)}
+    .device-name{font-weight:600; font-size:30px}
+    .device-ip{font-size:24px; color:var(--muted)}
+
+    /* control buttons (all on/off) */
+    .control-btn{display:flex; align-items:center; justify-content:center; gap:8px; padding:14px 16px; border-radius:10px; border:none; cursor:pointer; background:linear-gradient(135deg, rgba(110,231,183,0.15), rgba(96,165,250,0.15)); color:var(--fg); transition:transform .12s, box-shadow .12s; font-size:28px; font-weight:600; width:100%}
+    .control-btn:hover{transform:translateY(-2px); box-shadow:0 6px 16px rgba(2,6,23,0.4)}
+    .control-btn:active{transform:translateY(0)}
+    .control-all-on{background:linear-gradient(135deg, rgba(110,231,183,0.25), rgba(110,231,183,0.12))}
+    .control-all-off{background:linear-gradient(135deg, rgba(251,113,133,0.25), rgba(251,113,133,0.12))}
 
     /* weather */
     .weather-header{display:flex; justify-content:space-between; align-items:center}
     .weather-left{display:flex; gap:12px; align-items:center}
-    .weather-icon{font-size:28px}
-    .weather-now{font-size:22px; font-weight:700}
-    .weather-meta{color:var(--muted); font-size:13px}
+    .weather-icon{font-size:56px}
+    .weather-now{font-size:44px; font-weight:700}
+    .weather-meta{color:var(--muted); font-size:26px}
    /* Charts container: allow proper flexbox shrinking (min-height:0 avoids overflow)
      and make the weather card use column flex layout so charts can share vertical space */
    section[aria-label="weather"]{display:flex; flex-direction:column; min-height:0}
@@ -51,13 +58,10 @@
    /* make the two main charts share vertical space and stretch to the bottom; ensure they can shrink */
    .chart-wrap.flex-grow{flex:1; min-height:0}
 
-    footer{padding:14px 28px; color:var(--muted); font-size:13px; text-align:center}
+    footer{padding:14px 28px; color:var(--muted); font-size:26px; text-align:center}
   </style>
 </head>
 <body>
-  <header>
-    <div class="title">{{ title }}</div>
-  </header>
   <div class="lcars-bar"></div>
 
   <main>
@@ -67,6 +71,10 @@
         <div class="badge" style="background:var(--accent3)">Local</div>
       </div>
       <div id="device-list" class="device-list"></div>
+      <div style="display:flex; gap:8px; margin-top:12px;">
+        <button id="all-lights-on" class="control-btn control-all-on">All On</button>
+        <button id="all-lights-off" class="control-btn control-all-off">All Off</button>
+      </div>
     </section>
 
     <section class="lcars-card" aria-label="weather">
@@ -107,9 +115,6 @@
     </section>
   </main>
 
-  <footer>
-    Tip: add/edit devices in <code>config.json</code> and restart the app.
-  </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
@@ -188,6 +193,38 @@
       });
     }
 
+    // toggle all devices to on or off
+    async function toggleAllDevices(state) {
+      try {
+        const devices = await fetchDevices();
+        const allBtns = document.querySelectorAll('.device-btn');
+        allBtns.forEach(btn => btn.disabled = true);
+
+        // toggle all devices
+        for (const d of devices) {
+          const ip = d.ip;
+          const currentState = d.state;
+          // only toggle if state differs from target
+          if ((state === 'on' && currentState !== true) || (state === 'off' && currentState !== false)) {
+            try {
+              const res = await fetch('/api/toggle', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ ip })
+              });
+              const data = await res.json();
+              if (!res.ok || !data.ok) console.error(`Failed to toggle ${ip}`);
+            } catch (e) {
+              console.error(`Error toggling ${ip}:`, e);
+            }
+          }
+        }
+        // refresh device list to get updated states
+        await fetchAndRenderDevices();
+      } catch (e) {
+        console.error('Failed to toggle all:', e);
+      }
+    }
+
     function iconForWeathercode(code) {
       // Very small mapping to emojis — replace with SVG/icons as desired
       const map = {
@@ -253,20 +290,29 @@
       let prec = (weather.precipitation || []).slice(0, maxPoints);
       let clouds = (weather.cloudcover || []).slice(0, maxPoints);
 
-      // Ensure the axis starts at the current time. If the backend's first hourly timestamp
-      // doesn't equal the current_weather time, insert a 'now' point using current_weather
-      // so charts visually start at the exact current moment.
+      // Ensure the axis starts at the current time and trim to the next 48 hours from now.
+      // This creates a "moving window" so as time progresses, the chart automatically shifts forward.
       try {
         const cur = weather.current_weather || null;
         if (cur && cur.time) {
           const nowISO = cur.time; // Open-Meteo current_weather.time is ISO
-          // If times is empty or doesn't start at nowISO, prepend current values
-          if (!times.length || times[0] !== nowISO) {
-            // use current temperature if available
+          const nowDate = new Date(nowISO);
+          
+          // Find the index where times[i] >= nowISO (i.e., the first point at or after now)
+          let startIdx = times.findIndex(t => new Date(t) >= nowDate);
+          if (startIdx === -1) startIdx = 0; // If all points are in the past (shouldn't happen), start at 0
+          
+          // Slice from that index to get the next 48 hours from now
+          times = times.slice(startIdx, startIdx + maxPoints);
+          temps = temps.slice(startIdx, startIdx + maxPoints);
+          prec = prec.slice(startIdx, startIdx + maxPoints);
+          clouds = clouds.slice(startIdx, startIdx + maxPoints);
+          
+          // If we don't have current weather data at the start, prepend it
+          if (startIdx > 0 || (times.length > 0 && new Date(times[0]) > nowDate)) {
             const nowTemp = cur.temperature !== undefined ? Number(cur.temperature) : (temps[0] !== undefined ? Number(temps[0]) : null);
             const nowPrec = (prec[0] !== undefined) ? Number(prec[0]) : 0;
             const nowCloud = (clouds[0] !== undefined) ? Number(clouds[0]) : null;
-            // Prepend
             times = [nowISO].concat(times).slice(0, maxPoints);
             temps = (nowTemp === null ? temps : [nowTemp].concat(temps)).slice(0, maxPoints);
             prec = [nowPrec].concat(prec).slice(0, maxPoints);
@@ -292,19 +338,19 @@
       window._tempChart = new Chart(tempCtx, {
         type: 'line',
         data: { labels: labels, datasets: [{ label: 'Temperature (°C)', data: temps, borderColor: 'rgba(255,159,67,0.95)', backgroundColor: 'rgba(255,159,67,0.12)', tension: 0.25, pointRadius: 0, fill: true }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false, grid: { display: false } }, y: { beginAtZero: false } } }
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false, grid: { display: false } }, y: { beginAtZero: false, ticks: { font: { size: 24 } } } } }
       });
 
       window._precipChart = new Chart(precipCtx, {
         type: 'line',
         data: { labels: labels, datasets: [{ label: 'Precipitation (mm)', data: prec, borderColor: 'rgba(96,165,250,0.95)', backgroundColor: 'rgba(96,165,250,0.08)', tension: 0.24, pointRadius: 0, fill: true }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false, grid: { display: false } }, y: { beginAtZero: true } } }
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false, grid: { display: false } }, y: { beginAtZero: true, ticks: { font: { size: 24 } } } } }
       });
 
       window._cloudChart = new Chart(cloudCtx, {
         type: 'line',
         data: { labels: labels, datasets: [{ label: 'Cloud cover (%)', data: clouds, borderColor: 'rgba(148,163,184,0.95)', backgroundColor: 'rgba(148,163,184,0.06)', tension: 0.2, pointRadius: 0, fill: true }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: true }, y: { beginAtZero: true, max: 100 } } }
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: true, ticks: { font: { size: 26 } } }, y: { beginAtZero: true, max: 100, ticks: { font: { size: 24 } } } } }
       });
 
       if (updatedEl) updatedEl.textContent = (new Date()).toLocaleString();
@@ -316,15 +362,19 @@
       // refresh device states every 60 seconds
       setInterval(fetchAndRenderDevices, 60 * 1000);
 
+      // attach listeners to all-on/all-off buttons
+      document.getElementById('all-lights-on').addEventListener('click', () => toggleAllDevices('on'));
+      document.getElementById('all-lights-off').addEventListener('click', () => toggleAllDevices('off'));
+
       // fetch and render weather, then refresh periodically
       try {
         const w = await fetchWeather();
         renderWeather(w);
-        // refresh every 5 minutes
+        // refresh every 1 minute to keep the moving window current
         setInterval(async () => {
           const nw = await fetchWeather();
           renderWeather(nw);
-        }, 5 * 60 * 1000);
+        }, 60 * 1000);
       } catch (e) { console.error('Render weather failed', e); }
     }
 
