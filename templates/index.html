@@ -281,9 +281,17 @@
       const ix = Math.round(deg / 22.5) % 16; return dirs[ix];
     }
 
-    // Color palette: violet(-10°C) -> blue -> cyan -> green -> yellow -> red(35°C)
-    const PALETTE = ['#7e00ff', '#0000ff', '#00ffff', '#00ff00', '#ffff00', '#ff0000'];
-    const FIXED_MIN = -10, FIXED_MAX = 35;
+    // Explicit temperature color stops (interpolated between)
+    const TEMP_STOPS = [
+      { t: -10, color: '#7e00ff' },  // violet
+      { t:   0, color: '#0000ff' },  // blue
+      { t:   8, color: '#00ffff' },  // cyan
+      { t:  14, color: '#00cc00' },  // green
+      { t:  19, color: '#ffff00' },  // yellow
+      { t:  26, color: '#ff8800' },  // orange
+      { t:  30, color: '#ff0000' },  // red
+      { t:  35, color: '#8b0000' },  // dark red
+    ];
 
     function hexToRgb(hex) {
       const m = hex.replace('#','');
@@ -295,13 +303,14 @@
       return `rgb(${lerp(r1[0],r2[0],t)}, ${lerp(r1[1],r2[1],t)}, ${lerp(r1[2],r2[2],t)})`;
     }
     function colorForTemp(temp) {
-      if (temp === null || temp === undefined) return PALETTE[Math.floor(PALETTE.length/2)];
-      const clamped = Math.max(FIXED_MIN, Math.min(FIXED_MAX, Number(temp)));
-      const norm = (clamped - FIXED_MIN) / (FIXED_MAX - FIXED_MIN);
-      const scaled = norm * (PALETTE.length - 1);
-      const idx = Math.floor(scaled);
-      const t = scaled - idx;
-      return interpColor(PALETTE[idx], PALETTE[Math.min(idx + 1, PALETTE.length - 1)], t);
+      if (temp === null || temp === undefined) temp = TEMP_STOPS[0].t;
+      const v = Math.max(TEMP_STOPS[0].t, Math.min(TEMP_STOPS[TEMP_STOPS.length-1].t, Number(temp)));
+      let lo = TEMP_STOPS[0], hi = TEMP_STOPS[TEMP_STOPS.length-1];
+      for (let i = 0; i < TEMP_STOPS.length - 1; i++) {
+        if (v >= TEMP_STOPS[i].t && v <= TEMP_STOPS[i+1].t) { lo = TEMP_STOPS[i]; hi = TEMP_STOPS[i+1]; break; }
+      }
+      const t = lo.t === hi.t ? 0 : (v - lo.t) / (hi.t - lo.t);
+      return interpColor(lo.color, hi.color, t);
     }
 
     function renderWeather(weather) {
