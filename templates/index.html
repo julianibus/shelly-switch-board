@@ -434,18 +434,24 @@
       });
 
       // Cloud coverage bar chart with day/night color awareness
+      // Night: clear = dark navy, overcast = dark steel blue
+      // Day:   clear = sky blue,  overcast = white/light grey
       const cloudBackgroundColors = times.map((t, idx) => {
         const coverage = clouds[idx] !== undefined ? Math.max(0, Math.min(100, clouds[idx])) / 100 : 0.5;
         const hour = new Date(t).getHours();
-        const isDaytime = hour >= 6 && hour < 18;
+        const isDaytime = hour >= 6 && hour < 20;
         if (isDaytime) {
-          const r = Math.round(173 + (255 - 173) * coverage);
-          const g = Math.round(216 + (255 - 216) * coverage);
-          const b = Math.round(230 + (255 - 230) * coverage);
-          return `rgba(${r}, ${g}, ${b}, ${0.5 + 0.5 * coverage})`;
+          // sky blue (0%) → white (100%)
+          const r = Math.round(100 + (230 - 100) * coverage);
+          const g = Math.round(180 + (230 - 180) * coverage);
+          const b = Math.round(255 + (235 - 255) * coverage);
+          return `rgba(${r}, ${g}, ${b}, 0.75)`;
         } else {
-          const val = Math.round(20 + 80 * coverage);
-          return `rgba(${val}, ${val}, ${val}, ${0.3 + 0.7 * coverage})`;
+          // dark navy (0%) → dark steel blue-grey (100%)
+          const r = Math.round(10  + (70  - 10)  * coverage);
+          const g = Math.round(18  + (80  - 18)  * coverage);
+          const b = Math.round(45  + (110 - 45)  * coverage);
+          return `rgba(${r}, ${g}, ${b}, ${0.5 + 0.45 * coverage})`;
         }
       });
 
@@ -458,17 +464,18 @@
             data: clouds.map(c => c !== undefined ? Math.max(0, Math.min(100, c)) : 50),
             backgroundColor: cloudBackgroundColors,
             borderWidth: 0,
+            borderRadius: 3,
+            borderSkipped: false,
             barThickness: 'flex'
           }]
         },
         options: {
-          indexAxis: 'x',
           responsive: true,
           maintainAspectRatio: false,
           plugins: { legend: { display: false } },
           scales: {
-            x: { display: true, ticks: { font: { size: 20 }, maxTicksLimit: 8 }, max: 100, min: 0 },
-            y: { display: true, ticks: { font: { size: 20 } } }
+            x: { display: true, ticks: { font: { size: 20 }, maxTicksLimit: 8 }, grid: { display: false } },
+            y: { display: true, min: 0, max: 100, ticks: { font: { size: 18 }, stepSize: 25 }, grid: { color: 'rgba(255,255,255,0.06)' } }
           }
         }
       });
