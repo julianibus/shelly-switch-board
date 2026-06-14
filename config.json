@@ -10,6 +10,6 @@
   "panels": {
     "devices": true,
     "weather": true,
-    "posthog": false
+    "posthog": true
   }
 }
