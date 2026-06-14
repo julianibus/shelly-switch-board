@@ -379,37 +379,42 @@
       if (window._precipChart) window._precipChart.destroy();
       if (window._cloudChart)  window._cloudChart.destroy();
 
-      // Sorted temps for min/max
-      const tempsFiltered = temps.filter(t => t !== null && t !== undefined).map(Number).sort((a,b) => a - b);
-      const dataMin = tempsFiltered.length ? tempsFiltered[0] : FIXED_MIN;
-      const dataMax = tempsFiltered.length ? tempsFiltered[tempsFiltered.length - 1] : FIXED_MAX;
+      // Inline plugin: paint temperature-color gradient as the chart area background.
+      // Uses the scale's actual y.min / y.max so the colors align with the axis exactly.
+      const tempGradientPlugin = {
+        id: 'tempGradient',
+        beforeDraw(chart) {
+          const { ctx, chartArea, scales } = chart;
+          if (!chartArea || !scales.y) return;
+          const yMin = scales.y.min, yMax = scales.y.max;
+          const range = yMax - yMin || 1;
+          const g = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
+          const STEPS = 64;
+          for (let i = 0; i <= STEPS; i++) {
+            const frac = i / STEPS;
+            g.addColorStop(frac, colorForTemp(yMin + frac * range));
+          }
+          ctx.save();
+          ctx.globalAlpha = 0.5;
+          ctx.fillStyle = g;
+          ctx.fillRect(chartArea.left, chartArea.top, chartArea.right - chartArea.left, chartArea.bottom - chartArea.top);
+          ctx.restore();
+        }
+      };
 
       window._tempChart = new Chart(tempCtx, {
         type: 'line',
+        plugins: [tempGradientPlugin],
         data: {
           labels,
           datasets: [{
             label: 'Temperature (°C)',
             data: temps,
-            borderColor: 'rgba(255,255,255,0.9)',
-            // Gradient maps linearly from colorForTemp(dataMin) at chart bottom
-            // to colorForTemp(dataMax) at chart top — matching the auto-scaled Y axis.
-            backgroundColor: function(context) {
-              const chart = context.chart;
-              const { ctx, chartArea } = chart;
-              if (!chartArea) return 'rgba(255,255,255,0.1)';
-              const range = dataMax - dataMin || 1;
-              const g = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
-              const STEPS = 64;
-              for (let i = 0; i <= STEPS; i++) {
-                const frac = i / STEPS;
-                g.addColorStop(frac, colorForTemp(dataMin + frac * range));
-              }
-              return g;
-            },
+            borderColor: 'rgba(255,255,255,0.95)',
+            borderWidth: 2.5,
             tension: 0.25,
             pointRadius: 0,
-            fill: true
+            fill: false
           }]
         },
         options: {
