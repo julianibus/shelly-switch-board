@@ -558,31 +558,23 @@
       return await res.json();
     }
 
-    // PostHog web-analytics endpoints return various shapes; try common ones.
+    // PostHog endpoint format: { results: [[42]], ... }
     function extractPosthogNumber(data) {
       if (data == null) return null;
       if (typeof data === 'number') return data;
-      // { result: 123 } or { results: 123 }
       if (typeof data.result === 'number') return data.result;
       if (typeof data.results === 'number') return data.results;
-      // { results: [ { value: 123 } ] } or [ { aggregated_value: 123 } ]
-      const arr = Array.isArray(data.results) ? data.results : (Array.isArray(data) ? data : null);
-      if (arr && arr.length > 0) {
-        const last = arr[arr.length - 1];
-        if (typeof last === 'number') return last;
-        if (last && typeof last.value === 'number') return last.value;
-        if (last && typeof last.aggregated_value === 'number') return last.aggregated_value;
-        if (last && typeof last.count === 'number') return last.count;
-      }
-      // fallback: first top-level numeric value
-      if (typeof data === 'object') {
-        for (const v of Object.values(data)) { if (typeof v === 'number') return v; }
+      if (Array.isArray(data.results) && data.results.length > 0) {
+        const first = data.results[0];
+        if (Array.isArray(first) && first.length > 0 && typeof first[0] === 'number') return first[0];
+        if (typeof first === 'number') return first;
+        if (first && typeof first.value === 'number') return first.value;
+        if (first && typeof first.aggregated_value === 'number') return first.aggregated_value;
       }
       return null;
     }
 
     function renderPosthog(data) {
-      console.log('PostHog raw response:', JSON.stringify(data, null, 2));
       const todayEl = document.getElementById('posthog-today');
       const weekEl  = document.getElementById('posthog-week');
       const fmt = n => n == null ? '—' : Number(n).toLocaleString();
