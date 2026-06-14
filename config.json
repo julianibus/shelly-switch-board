@@ -5,7 +5,12 @@
     {"ip": "192.168.178.32", "name": "Flur", "color": "#F5CF27", "symbol": "💡"},
     {"ip": "192.168.178.34", "name": "Schreibtisch", "color": "#F5CF27", "symbol": "💡"},
     {"ip": "192.168.178.35", "name": "Küche", "color": "#F5CF27", "symbol": "💡"}
-  ]
-  ,
-  "location": "Munich, Germany"
+  ],
+  "location": "Munich, Germany",
+  "panels": {
+    "devices": true,
+    "weather": true,
+    "posthog": false
+  },
+  "posthog_api_key": ""
 }

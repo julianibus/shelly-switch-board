@@ -64,12 +64,29 @@
    .chart-wrap.flex-grow{flex:1; min-height:0}
 
     footer{padding:14px 28px; color:var(--muted); font-size:26px; text-align:center}
+
+    /* posthog panel */
+    .posthog-panel{ display:flex; align-items:center; gap:32px }
+    .posthog-stat{ text-align:center; min-width:120px }
+    .posthog-value{ font-size:38px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--fg) }
+    .posthog-label{ font-size:17px; color:var(--muted); margin-top:2px }
+    .panel-hidden{ display:none !important }
   </style>
 </head>
 <body>
 
   <header>
     <div class="clock" id="clock">--:--:--</div>
+    <div class="posthog-panel panel-hidden" id="posthog-panel">
+      <div class="posthog-stat">
+        <div class="posthog-value" id="posthog-today">—</div>
+        <div class="posthog-label">visitors today</div>
+      </div>
+      <div class="posthog-stat">
+        <div class="posthog-value" id="posthog-week">—</div>
+        <div class="posthog-label">this week</div>
+      </div>
+    </div>
   </header>
 
   <main>
@@ -534,19 +551,90 @@
       if (updatedEl) updatedEl.textContent = (new Date()).toLocaleString();
     }
 
+    // ── PostHog ──────────────────────────────────────────────────────────────
+    async function fetchPosthog() {
+      const res = await fetch('/api/posthog');
+      if (!res.ok) throw new Error(`PostHog API error ${res.status}`);
+      return await res.json();
+    }
+
+    // PostHog web-analytics endpoints return various shapes; try common ones.
+    function extractPosthogNumber(data) {
+      if (data == null) return null;
+      if (typeof data === 'number') return data;
+      // { result: 123 } or { results: 123 }
+      if (typeof data.result === 'number') return data.result;
+      if (typeof data.results === 'number') return data.results;
+      // { results: [ { value: 123 } ] } or [ { aggregated_value: 123 } ]
+      const arr = Array.isArray(data.results) ? data.results : (Array.isArray(data) ? data : null);
+      if (arr && arr.length > 0) {
+        const last = arr[arr.length - 1];
+        if (typeof last === 'number') return last;
+        if (last && typeof last.value === 'number') return last.value;
+        if (last && typeof last.aggregated_value === 'number') return last.aggregated_value;
+        if (last && typeof last.count === 'number') return last.count;
+      }
+      // fallback: first top-level numeric value
+      if (typeof data === 'object') {
+        for (const v of Object.values(data)) { if (typeof v === 'number') return v; }
+      }
+      return null;
+    }
+
+    function renderPosthog(data) {
+      const todayEl = document.getElementById('posthog-today');
+      const weekEl  = document.getElementById('posthog-week');
+      const fmt = n => n == null ? '—' : Number(n).toLocaleString();
+      todayEl.textContent = fmt(extractPosthogNumber(data.visitors_today));
+      weekEl.textContent  = fmt(extractPosthogNumber(data.visitors_week));
+    }
+
     // ── Init ─────────────────────────────────────────────────────────────────
     async function init() {
-      await fetchAndRenderDevices();
-      setInterval(fetchAndRenderDevices, 60 * 1000);
+      // Apply panel visibility before loading data
+      const panels = await fetch('/api/panels').then(r => r.json()).catch(() => ({}));
+      const main = document.querySelector('main');
+      const devSection     = document.querySelector('section[aria-label="devices"]');
+      const weatherSection = document.querySelector('section[aria-label="weather"]');
+      const posthogPanel   = document.getElementById('posthog-panel');
 
-      document.getElementById('all-lights-on').addEventListener('click',  () => setAllDevices(true));
-      document.getElementById('all-lights-off').addEventListener('click', () => setAllDevices(false));
+      if (!panels.devices) {
+        devSection.classList.add('panel-hidden');
+        main.style.gridTemplateColumns = panels.weather ? '1fr' : '';
+      }
+      if (!panels.weather) {
+        weatherSection.classList.add('panel-hidden');
+        if (panels.devices) main.style.gridTemplateColumns = '360px';
+      }
+      if (!panels.devices && !panels.weather) {
+        main.classList.add('panel-hidden');
+      }
+      if (panels.posthog) {
+        posthogPanel.classList.remove('panel-hidden');
+      }
 
-      try {
-        const w = await fetchWeather();
-        renderWeather(w);
-        setInterval(async () => { const nw = await fetchWeather(); renderWeather(nw); }, 900 * 1000);
-      } catch (e) { console.error('Render weather failed', e); }
+      if (panels.devices !== false) {
+        await fetchAndRenderDevices();
+        setInterval(fetchAndRenderDevices, 60 * 1000);
+        document.getElementById('all-lights-on').addEventListener('click',  () => setAllDevices(true));
+        document.getElementById('all-lights-off').addEventListener('click', () => setAllDevices(false));
+      }
+
+      if (panels.weather !== false) {
+        try {
+          const w = await fetchWeather();
+          renderWeather(w);
+          setInterval(async () => { const nw = await fetchWeather(); renderWeather(nw); }, 900 * 1000);
+        } catch (e) { console.error('Render weather failed', e); }
+      }
+
+      if (panels.posthog) {
+        try {
+          const ph = await fetchPosthog();
+          renderPosthog(ph);
+          setInterval(async () => { try { renderPosthog(await fetchPosthog()); } catch(e){} }, 5 * 60 * 1000);
+        } catch (e) { console.error('PostHog fetch failed', e); }
+      }
     }
 
     init().catch(err => {
