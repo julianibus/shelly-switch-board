@@ -351,19 +351,15 @@ POSTHOG_ENDPOINTS = {
 
 @app.get("/api/posthog")
 def api_posthog():
-    """Proxy PostHog insight endpoints so the API key stays server-side."""
+    """Proxy PostHog public insight endpoints (no auth required)."""
     config = load_config()
     panels = config.get("panels", {})
     if not panels.get("posthog", False):
         return make_response(jsonify({"error": "posthog panel disabled"}), 403)
-    api_key = config.get("posthog_api_key", "")
-    if not api_key:
-        return make_response(jsonify({"error": "posthog_api_key not set in config.json"}), 503)
-    headers = {"Authorization": f"Bearer {api_key}"}
     result: Dict[str, Any] = {}
     for key, path in POSTHOG_ENDPOINTS.items():
         try:
-            r = requests.get(f"{POSTHOG_BASE}{path}", headers=headers, timeout=10)
+            r = requests.get(f"{POSTHOG_BASE}{path}", timeout=10)
             r.raise_for_status()
             result[key] = r.json()
         except Exception as e:

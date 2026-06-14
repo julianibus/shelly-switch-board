@@ -11,6 +11,5 @@
     "devices": true,
     "weather": true,
     "posthog": false
-  },
-  "posthog_api_key": ""
+  }
 }
