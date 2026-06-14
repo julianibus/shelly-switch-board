@@ -21,7 +21,7 @@
 
     header{ display:flex; align-items:center; justify-content:space-between; padding:18px 28px; gap:12px }
     .title{ font-weight:700; font-size:40px; letter-spacing:0.02em }
-    .subtitle{ color:var(--muted); font-size:26px }
+    .clock{ font-size:38px; font-weight:600; color:var(--fg); letter-spacing:0.04em; font-variant-numeric: tabular-nums }
 
   main{flex:1; display:grid; grid-template-columns:360px 1fr; gap:20px; padding:20px 28px; height: calc(100vh - 96px)}
     @media (max-width:900px){ main{grid-template-columns:1fr} }
@@ -33,8 +33,13 @@
     .device-list{display:flex; flex-direction:column; gap:8px}
     .device-btn{display:flex; align-items:center; justify-content:space-between; gap:12px; padding:18px 16px; border-radius:10px; border:none; cursor:pointer; background:var(--glass); color:var(--fg); transition:transform .12s, box-shadow .12s; min-height:78px; width:100%; font-size:32px}
     .device-btn:hover{transform:translateY(-4px); box-shadow:0 8px 20px rgba(2,6,23,0.5)}
+    .device-btn:disabled{cursor:not-allowed; opacity:0.7; transform:none}
     .device-name{font-weight:600; font-size:30px}
-    .device-ip{font-size:24px; color:var(--muted)}
+    .device-offline{font-size:20px; color:var(--danger); opacity:0.75; margin-top:2px}
+
+    /* spinner */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinning{ display:inline-block; animation: spin 0.7s linear infinite; }
 
     /* control buttons (all on/off) */
     .control-btn{display:flex; align-items:center; justify-content:center; gap:8px; padding:14px 16px; border-radius:10px; border:none; cursor:pointer; background:linear-gradient(135deg, rgba(110,231,183,0.15), rgba(96,165,250,0.15)); color:var(--fg); transition:transform .12s, box-shadow .12s; font-size:28px; font-weight:600; width:100%}
@@ -62,7 +67,10 @@
   </style>
 </head>
 <body>
-  <div class="lcars-bar"></div>
+
+  <header>
+    <div class="clock" id="clock">--:--:--</div>
+  </header>
 
   <main>
     <section class="lcars-card device-column" aria-label="devices">
@@ -115,7 +123,21 @@
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
-    // Fetch weather from backend API (keeps data fresh)
+    // ── Clock ────────────────────────────────────────────────────────────────
+    function updateClock() {
+      const now = new Date();
+      const h = String(now.getHours()).padStart(2, '0');
+      const m = String(now.getMinutes()).padStart(2, '0');
+      const s = String(now.getSeconds()).padStart(2, '0');
+      document.getElementById('clock').textContent = `${h}:${m}:${s}`;
+    }
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    // ── Device state cache ───────────────────────────────────────────────────
+    let cachedDevices = [];
+
+    // ── API helpers ──────────────────────────────────────────────────────────
     async function fetchWeather() {
       try {
         const res = await fetch('/api/weather');
@@ -133,16 +155,34 @@
       return await res.json();
     }
 
+    // ── Device card rendering ────────────────────────────────────────────────
     function cardTemplate(d) {
       const color = d.color || '#FF9F43';
       const symbol = d.symbol || '⏻';
       const name = d.name || d.ip;
       const state = d.state === true ? 'on' : (d.state === false ? 'off' : 'unknown');
-      // visual styles: if on, use configured color; if off, use translucent background
-      const bg = state === 'on' ? color : 'transparent';
-      const textColor = state === 'on' ? '#061018' : 'var(--fg)';
-      const border = state === 'on' ? 'none' : '1px solid rgba(255,255,255,0.04)';
-      const dot = state === 'on' ? `<span class="dot" style="width:12px;height:12px;border-radius:50%;background:${color};display:inline-block;margin-right:8px;box-shadow:0 2px 6px ${color}33"></span>` : `<span class="dot" style="width:12px;height:12px;border-radius:50%;background:transparent;border:1px solid rgba(255,255,255,0.06);display:inline-block;margin-right:8px"></span>`;
+
+      let bg, textColor, border, dot, offlineLabel = '';
+
+      if (state === 'on') {
+        bg = color;
+        textColor = '#061018';
+        border = 'none';
+        dot = `<span class="dot" style="width:12px;height:12px;border-radius:50%;background:${color};display:inline-block;margin-right:8px;box-shadow:0 2px 6px ${color}33"></span>`;
+      } else if (state === 'off') {
+        bg = 'transparent';
+        textColor = 'var(--fg)';
+        border = '1px solid rgba(255,255,255,0.04)';
+        dot = `<span class="dot" style="width:12px;height:12px;border-radius:50%;background:transparent;border:1px solid rgba(255,255,255,0.06);display:inline-block;margin-right:8px"></span>`;
+      } else {
+        // unknown / offline
+        bg = 'transparent';
+        textColor = 'var(--fg)';
+        border = '1px solid rgba(251,113,133,0.35)';
+        dot = `<span class="dot" style="width:12px;height:12px;border-radius:50%;background:transparent;border:1px solid rgba(251,113,133,0.5);display:inline-block;margin-right:8px"></span>`;
+        offlineLabel = `<div class="device-offline">offline</div>`;
+      }
+
       return `
         <div class="lcars-card" style="padding:8px;">
           <button class="device-btn" data-ip="${d.ip}" style="background:${bg}; color:${textColor}; border:${border}">
@@ -150,6 +190,7 @@
               ${dot}
               <div style="text-align:left">
                 <div class="device-name">${name}</div>
+                ${offlineLabel}
               </div>
             </div>
             <div class="symbol">${symbol}</div>
@@ -158,72 +199,67 @@
       `;
     }
 
+    // ── Toggle single device ─────────────────────────────────────────────────
     async function toggle(ip, btnEl) {
+      const symbolEl = btnEl.querySelector('.symbol');
+      const origSymbol = symbolEl ? symbolEl.textContent : '';
       try {
         btnEl.disabled = true;
-        // send toggle request
+        if (symbolEl) symbolEl.innerHTML = '<span class="spinning">↻</span>';
         const res = await fetch('/api/toggle', {
           method: 'POST', headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({ ip })
         });
         const data = await res.json();
         if (!res.ok || !data.ok) throw new Error(data.error || 'Toggle failed');
-        // refresh device list to get updated states
         await fetchAndRenderDevices();
       } catch (e) {
         console.error(e);
+        if (symbolEl) symbolEl.textContent = origSymbol;
       } finally {
         btnEl.disabled = false;
+        // symbol restored by re-render; if re-render didn't run (error), restore manually
+        if (symbolEl && symbolEl.querySelector('.spinning')) symbolEl.textContent = origSymbol;
       }
     }
 
-    // render device list from fetched devices
+    // ── Fetch + render device list ───────────────────────────────────────────
     async function fetchAndRenderDevices() {
       const list = document.getElementById('device-list');
       const devices = await fetchDevices();
+      cachedDevices = devices;
       list.innerHTML = devices.map(cardTemplate).join('');
 
-      // attach listeners
       list.querySelectorAll('.device-btn').forEach(btn => {
         const ip = btn.getAttribute('data-ip');
         btn.addEventListener('click', () => toggle(ip, btn));
       });
     }
 
-    // toggle all devices to on or off
-    async function toggleAllDevices(state) {
+    // ── Set all devices on or off via /api/set ───────────────────────────────
+    async function setAllDevices(on) {
+      // Disable all buttons immediately for visual feedback
+      document.querySelectorAll('.device-btn').forEach(btn => btn.disabled = true);
+      document.querySelectorAll('.control-btn').forEach(btn => btn.disabled = true);
       try {
-        const devices = await fetchDevices();
-        const allBtns = document.querySelectorAll('.device-btn');
-        allBtns.forEach(btn => btn.disabled = true);
-
-        // toggle all devices
-        for (const d of devices) {
-          const ip = d.ip;
-          const currentState = d.state;
-          // only toggle if state differs from target
-          if ((state === 'on' && currentState !== true) || (state === 'off' && currentState !== false)) {
-            try {
-              const res = await fetch('/api/toggle', {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ ip })
-              });
-              const data = await res.json();
-              if (!res.ok || !data.ok) console.error(`Failed to toggle ${ip}`);
-            } catch (e) {
-              console.error(`Error toggling ${ip}:`, e);
-            }
-          }
-        }
-        // refresh device list to get updated states
+        const devices = cachedDevices.length ? cachedDevices : await fetchDevices();
+        await Promise.all(devices.map(d =>
+          fetch('/api/set', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ ip: d.ip, on })
+          }).catch(e => console.error(`Failed to set ${d.ip}:`, e))
+        ));
         await fetchAndRenderDevices();
       } catch (e) {
-        console.error('Failed to toggle all:', e);
+        console.error('setAllDevices failed:', e);
+      } finally {
+        document.querySelectorAll('.control-btn').forEach(btn => btn.disabled = false);
       }
     }
 
+    // ── Weather rendering ────────────────────────────────────────────────────
     function iconForWeathercode(code) {
-      // Very small mapping to emojis — replace with SVG/icons as desired
       const map = {
         0: '☀️',
         1: '🌤️',
@@ -245,6 +281,29 @@
       const ix = Math.round(deg / 22.5) % 16; return dirs[ix];
     }
 
+    // Color palette: violet(-10°C) -> blue -> cyan -> green -> yellow -> red(35°C)
+    const PALETTE = ['#7e00ff', '#0000ff', '#00ffff', '#00ff00', '#ffff00', '#ff0000'];
+    const FIXED_MIN = -10, FIXED_MAX = 35;
+
+    function hexToRgb(hex) {
+      const m = hex.replace('#','');
+      return [parseInt(m.substring(0,2),16), parseInt(m.substring(2,4),16), parseInt(m.substring(4,6),16)];
+    }
+    function lerp(a, b, t){ return Math.round(a + (b - a) * t); }
+    function interpColor(c1, c2, t){
+      const r1 = hexToRgb(c1), r2 = hexToRgb(c2);
+      return `rgb(${lerp(r1[0],r2[0],t)}, ${lerp(r1[1],r2[1],t)}, ${lerp(r1[2],r2[2],t)})`;
+    }
+    function colorForTemp(temp) {
+      if (temp === null || temp === undefined) return PALETTE[Math.floor(PALETTE.length/2)];
+      const clamped = Math.max(FIXED_MIN, Math.min(FIXED_MAX, Number(temp)));
+      const norm = (clamped - FIXED_MIN) / (FIXED_MAX - FIXED_MIN);
+      const scaled = norm * (PALETTE.length - 1);
+      const idx = Math.floor(scaled);
+      const t = scaled - idx;
+      return interpColor(PALETTE[idx], PALETTE[Math.min(idx + 1, PALETTE.length - 1)], t);
+    }
+
     function renderWeather(weather) {
       const locEl = document.getElementById('weather-location');
       const nowEl = document.getElementById('weather-now');
@@ -261,16 +320,13 @@
 
       locEl.textContent = weather.location_name || 'Forecast';
 
-      // Current weather
       const cur = weather.current_weather || null;
       if (cur) {
         const weatherCode = Number(cur.weathercode ?? cur.code ?? null);
         const temp = cur.temperature;
         const wind = cur.windspeed;
         const winddir = cur.winddirection;
-
-        const icon = iconForWeathercode(weatherCode);
-        if (weatherIconEl) weatherIconEl.textContent = icon;
+        if (weatherIconEl) weatherIconEl.textContent = iconForWeathercode(weatherCode);
         if (nowEl) nowEl.textContent = temp !== undefined ? `${Math.round(Number(temp))}°C` : '—';
         if (weatherDescEl) weatherDescEl.textContent = '';
         if (weatherWindEl) weatherWindEl.textContent = wind !== undefined ? `${wind} km/h ${windDirToCompass(Number(winddir))}` : '';
@@ -280,39 +336,30 @@
         if (weatherWindEl) weatherWindEl.textContent = '';
       }
 
-      // Use only up to 48 points (backend should already return the correct window)
       const maxPoints = 48;
       let times = (weather.times || []).slice(0, maxPoints);
       let temps = (weather.temperature || []).slice(0, maxPoints);
       let prec = (weather.precipitation || []).slice(0, maxPoints);
       let clouds = (weather.cloudcover || []).slice(0, maxPoints);
 
-      // Ensure the axis starts at the current time and trim to the next 48 hours from now.
-      // This creates a "moving window" so as time progresses, the chart automatically shifts forward.
+      // Trim to moving window starting at current time
       try {
-        const cur = weather.current_weather || null;
         if (cur && cur.time) {
-          const nowISO = cur.time; // Open-Meteo current_weather.time is ISO
-          const nowDate = new Date(nowISO);
-          
-          // Find the index where times[i] >= nowISO (i.e., the first point at or after now)
+          const nowDate = new Date(cur.time);
           let startIdx = times.findIndex(t => new Date(t) >= nowDate);
-          if (startIdx === -1) startIdx = 0; // If all points are in the past (shouldn't happen), start at 0
-          
-          // Slice from that index to get the next 48 hours from now
-          times = times.slice(startIdx, startIdx + maxPoints);
-          temps = temps.slice(startIdx, startIdx + maxPoints);
-          prec = prec.slice(startIdx, startIdx + maxPoints);
+          if (startIdx === -1) startIdx = 0;
+          times  = times.slice(startIdx, startIdx + maxPoints);
+          temps  = temps.slice(startIdx, startIdx + maxPoints);
+          prec   = prec.slice(startIdx, startIdx + maxPoints);
           clouds = clouds.slice(startIdx, startIdx + maxPoints);
-          
-          // If we don't have current weather data at the start, prepend it
+
           if (startIdx > 0 || (times.length > 0 && new Date(times[0]) > nowDate)) {
-            const nowTemp = cur.temperature !== undefined ? Number(cur.temperature) : (temps[0] !== undefined ? Number(temps[0]) : null);
-            const nowPrec = (prec[0] !== undefined) ? Number(prec[0]) : 0;
-            const nowCloud = (clouds[0] !== undefined) ? Number(clouds[0]) : null;
-            times = [nowISO].concat(times).slice(0, maxPoints);
-            temps = (nowTemp === null ? temps : [nowTemp].concat(temps)).slice(0, maxPoints);
-            prec = [nowPrec].concat(prec).slice(0, maxPoints);
+            const nowTemp  = cur.temperature !== undefined ? Number(cur.temperature) : (temps[0] !== undefined ? Number(temps[0]) : null);
+            const nowPrec  = prec[0] !== undefined ? Number(prec[0]) : 0;
+            const nowCloud = clouds[0] !== undefined ? Number(clouds[0]) : null;
+            times  = [cur.time].concat(times).slice(0, maxPoints);
+            temps  = (nowTemp  === null ? temps  : [nowTemp].concat(temps)).slice(0, maxPoints);
+            prec   = [nowPrec].concat(prec).slice(0, maxPoints);
             clouds = (nowCloud === null ? clouds : [nowCloud].concat(clouds)).slice(0, maxPoints);
           }
         }
@@ -320,149 +367,44 @@
         console.warn('Failed to stitch now into series', e);
       }
 
-      // labels as local hour strings
       const labels = times.map(t => {
         try { return new Date(t).toLocaleString(undefined, { hour: '2-digit', minute: '2-digit' }); } catch(e){ return t; }
       });
 
-      const tempCtx = document.getElementById('tempChart').getContext('2d');
-  const precipCtx = document.getElementById('precipChart').getContext('2d');
-  const cloudCtx = document.getElementById('cloudChart').getContext('2d');
+      const tempCtx   = document.getElementById('tempChart').getContext('2d');
+      const precipCtx = document.getElementById('precipChart').getContext('2d');
+      const cloudCtx  = document.getElementById('cloudChart').getContext('2d');
 
-      if (window._tempChart) window._tempChart.destroy();
+      if (window._tempChart)   window._tempChart.destroy();
       if (window._precipChart) window._precipChart.destroy();
-      if (window._cloudChart) window._cloudChart.destroy();
+      if (window._cloudChart)  window._cloudChart.destroy();
 
-      // Temperature chart with gradient color map tied to actual temperature values
-  // Use fixed mapping: violet -> -10°C, red -> 35°C
-  const FIXED_MIN = -10;
-  const FIXED_MAX = 35;
-  const tempGradient = tempCtx.createLinearGradient(0, tempCtx.canvas.height, 0, 0);
-
-      // Color palette from very cold (violet) -> hot (red)
-      const palette = ['#7e00ff', '#0000ff', '#00ffff', '#00ff00', '#ffff00', '#ff0000'];
-
-      function hexToRgb(hex) {
-        const m = hex.replace('#','');
-        return [parseInt(m.substring(0,2),16), parseInt(m.substring(2,4),16), parseInt(m.substring(4,6),16)];
-      }
-
-      function rgbToCss(rgb, a=1){ return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${a})`; }
-
-      function lerp(a, b, t){ return Math.round(a + (b - a) * t); }
-
-      function interpColor(c1, c2, t){
-        const r1 = hexToRgb(c1); const r2 = hexToRgb(c2);
-        return `rgb(${lerp(r1[0], r2[0], t)}, ${lerp(r1[1], r2[1], t)}, ${lerp(r1[2], r2[2], t)})`;
-      }
-
-      function colorForTemp(temp){
-        if (temp === null || temp === undefined) return palette[Math.floor(palette.length/2)];
-        // clamp to fixed range
-        const clamped = Math.max(FIXED_MIN, Math.min(FIXED_MAX, Number(temp)));
-        if (FIXED_MAX === FIXED_MIN) return palette[Math.floor(palette.length/2)];
-        const norm = (clamped - FIXED_MIN) / (FIXED_MAX - FIXED_MIN); // 0..1
-        const scaled = norm * (palette.length - 1);
-        const idx = Math.floor(scaled);
-        const t = scaled - idx;
-        const c1 = palette[idx];
-        const c2 = palette[Math.min(idx + 1, palette.length - 1)];
-        return interpColor(c1, c2, t);
-      }
-
-      // Create gradient stops at positions that correspond to the actual temperature values
-      // Build gradient: anchor endpoints at FIXED_MIN/FIXED_MAX but concentrate stops around the
-      // data distribution so the visible gradient reflects the current temps.
-      const tempsFiltered = temps.filter(t => t !== null && t !== undefined).map(Number).sort((a,b)=>a-b);
-      // gradientStops will be used by the chart background generator; compute once here
-      let gradientStops = [];
-      if (tempsFiltered.length === 0) {
-        // no data: just anchor endpoints
-        gradientStops = [FIXED_MIN, FIXED_MAX];
-      } else {
-        const dataMin = tempsFiltered[0];
-        const dataMax = tempsFiltered[tempsFiltered.length - 1];
-
-        // helper to compute quartiles
-        const q = (arr, p) => {
-          if (arr.length === 1) return arr[0];
-          const idx = (arr.length - 1) * p;
-          const lo = Math.floor(idx);
-          const hi = Math.ceil(idx);
-          if (lo === hi) return arr[lo];
-          return arr[lo] + (arr[hi] - arr[lo]) * (idx - lo);
-        };
-
-        gradientStops.push(dataMin);
-        if (tempsFiltered.length > 2) {
-          gradientStops.push(q(tempsFiltered, 0.25));
-          gradientStops.push(q(tempsFiltered, 0.5));
-          gradientStops.push(q(tempsFiltered, 0.75));
-        }
-        gradientStops.push(dataMax);
-
-        // ensure endpoints included
-        gradientStops = Array.from(new Set(gradientStops.concat([FIXED_MIN, FIXED_MAX]))).sort((a,b)=>a-b);
-      }
-      // Now add the color stops to the initially-created tempGradient for fallback use
-      tempGradient.addColorStop(0, colorForTemp(FIXED_MIN));
-      gradientStops.forEach(t => {
-        const clamped = Math.max(FIXED_MIN, Math.min(FIXED_MAX, Number(t)));
-        const pos = Math.max(0, Math.min(1, (clamped - FIXED_MIN) / (FIXED_MAX - FIXED_MIN)));
-        tempGradient.addColorStop(pos, colorForTemp(clamped));
-      });
-      tempGradient.addColorStop(1, colorForTemp(FIXED_MAX));
+      // Sorted temps for min/max
+      const tempsFiltered = temps.filter(t => t !== null && t !== undefined).map(Number).sort((a,b) => a - b);
+      const dataMin = tempsFiltered.length ? tempsFiltered[0] : FIXED_MIN;
+      const dataMax = tempsFiltered.length ? tempsFiltered[tempsFiltered.length - 1] : FIXED_MAX;
 
       window._tempChart = new Chart(tempCtx, {
         type: 'line',
         data: {
-          labels: labels,
+          labels,
           datasets: [{
             label: 'Temperature (°C)',
             data: temps,
             borderColor: 'rgba(255,255,255,0.9)',
+            // Gradient maps linearly from colorForTemp(dataMin) at chart bottom
+            // to colorForTemp(dataMax) at chart top — matching the auto-scaled Y axis.
             backgroundColor: function(context) {
               const chart = context.chart;
-              const {ctx, chartArea} = chart;
-              if (!chartArea) return tempGradient; // fallback until layout ready
-
-              // compute data min/max from the filtered temps available in outer scope
-              const dataMin = (typeof tempsFiltered !== 'undefined' && tempsFiltered.length > 0) ? tempsFiltered[0] : FIXED_MIN;
-              const dataMax = (typeof tempsFiltered !== 'undefined' && tempsFiltered.length > 0) ? tempsFiltered[tempsFiltered.length - 1] : FIXED_MAX;
-
+              const { ctx, chartArea } = chart;
+              if (!chartArea) return 'rgba(255,255,255,0.1)';
+              const range = dataMax - dataMin || 1;
               const g = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
-
-              // If no range, fill with a single color
-              if (dataMax === dataMin) {
-                const c = colorForTemp(dataMin);
-                g.addColorStop(0, c);
-                g.addColorStop(1, c);
-                return g;
+              const STEPS = 64;
+              for (let i = 0; i <= STEPS; i++) {
+                const frac = i / STEPS;
+                g.addColorStop(frac, colorForTemp(dataMin + frac * range));
               }
-
-              // Positions in 0..1 relative to fixed mapping
-              const clamp = v => Math.max(FIXED_MIN, Math.min(FIXED_MAX, Number(v)));
-              const toPos = v => (clamp(v) - FIXED_MIN) / (FIXED_MAX - FIXED_MIN);
-              const minPos = Math.max(0, Math.min(1, toPos(dataMin)));
-              const maxPos = Math.max(0, Math.min(1, toPos(dataMax)));
-
-              // Make area below dataMin a solid dataMin color, and above dataMax solid dataMax color.
-              g.addColorStop(0, colorForTemp(dataMin));
-              g.addColorStop(minPos, colorForTemp(dataMin));
-
-              // Create a smooth continuous gradient between dataMin and dataMax by sampling
-              // the color function at many positions. This avoids banding from sparse stops.
-              const STEPS = 128;
-              const range = Math.max(1e-6, maxPos - minPos);
-              for (let i = 0; i < STEPS; i++) {
-                const frac = i / (STEPS - 1);
-                const pos = minPos + frac * range;
-                const tempAtPos = FIXED_MIN + pos * (FIXED_MAX - FIXED_MIN);
-                g.addColorStop(pos, colorForTemp(tempAtPos));
-              }
-
-              g.addColorStop(maxPos, colorForTemp(dataMax));
-              g.addColorStop(1, colorForTemp(dataMax));
               return g;
             },
             tension: 0.25,
@@ -470,31 +412,33 @@
             fill: true
           }]
         },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false, grid: { display: false } }, y: { beginAtZero: false, ticks: { font: { size: 24 } } } } }
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { display: false, grid: { display: false } },
+            y: { beginAtZero: false, ticks: { font: { size: 24 } } }
+          }
+        }
       });
 
       window._precipChart = new Chart(precipCtx, {
         type: 'line',
-        data: { labels: labels, datasets: [{ label: 'Precipitation (mm)', data: prec, borderColor: 'rgba(96,165,250,0.95)', backgroundColor: 'rgba(96,165,250,0.08)', tension: 0.24, pointRadius: 0, fill: true }] },
+        data: { labels, datasets: [{ label: 'Precipitation (mm)', data: prec, borderColor: 'rgba(96,165,250,0.95)', backgroundColor: 'rgba(96,165,250,0.08)', tension: 0.24, pointRadius: 0, fill: true }] },
         options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false, grid: { display: false } }, y: { beginAtZero: true, ticks: { font: { size: 24 } } } } }
       });
 
-      // Cloud coverage as horizontal bar chart with day/night awareness
-      // Estimate day/night: assume sun is up 6am-6pm (simple heuristic)
+      // Cloud coverage bar chart with day/night color awareness
       const cloudBackgroundColors = times.map((t, idx) => {
         const coverage = clouds[idx] !== undefined ? Math.max(0, Math.min(100, clouds[idx])) / 100 : 0.5;
-        const date = new Date(t);
-        const hour = date.getHours();
+        const hour = new Date(t).getHours();
         const isDaytime = hour >= 6 && hour < 18;
-        
         if (isDaytime) {
-          // Daytime: light blue (no coverage) to white (full coverage)
           const r = Math.round(173 + (255 - 173) * coverage);
           const g = Math.round(216 + (255 - 216) * coverage);
           const b = Math.round(230 + (255 - 230) * coverage);
           return `rgba(${r}, ${g}, ${b}, ${0.5 + 0.5 * coverage})`;
         } else {
-          // Nighttime: black (no coverage) to dark grey (full coverage)
           const val = Math.round(20 + 80 * coverage);
           return `rgba(${val}, ${val}, ${val}, ${0.3 + 0.7 * coverage})`;
         }
@@ -502,58 +446,49 @@
 
       window._cloudChart = new Chart(cloudCtx, {
         type: 'bar',
-        data: { 
-          labels: labels, 
-          datasets: [{ 
-            label: 'Cloud cover (%)', 
+        data: {
+          labels,
+          datasets: [{
+            label: 'Cloud cover (%)',
             data: clouds.map(c => c !== undefined ? Math.max(0, Math.min(100, c)) : 50),
             backgroundColor: cloudBackgroundColors,
-            borderColor: 'rgba(148,163,184,0.2)',
             borderWidth: 0,
             barThickness: 'flex'
-          }] 
+          }]
         },
-        options: { 
+        options: {
           indexAxis: 'x',
-          responsive: true, 
-          maintainAspectRatio: false, 
-          plugins: { legend: { display: false } }, 
-          scales: { 
-            x: { display: true, ticks: { font: { size: 24 } }, max: 100, min: 0 }, 
-            y: { display: true, ticks: { font: { size: 20 } } } 
-          } 
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { display: true, ticks: { font: { size: 20 }, maxTicksLimit: 8 }, max: 100, min: 0 },
+            y: { display: true, ticks: { font: { size: 20 } } }
+          }
         }
       });
 
-      // Draw sunrise/sunset markers on each chart (vertical lines at the appropriate time)
+      // Sunrise/sunset vertical markers on all charts
       function drawTimeMarkerOnChart(chart, isoTime, label, color) {
         try {
           if (!isoTime) return;
           const tMs = new Date(isoTime).getTime();
           if (isNaN(tMs)) return;
-          // find index in times array closest to isoTime
           let idx = times.findIndex(tt => new Date(tt).getTime() >= tMs);
-          if (idx === -1) {
-            // if not found, skip
-            return;
-          }
-          const chartArea = chart.chartArea || chart._metasets && chart._metasets[0] && chart._metasets[0].chart.chartArea;
+          if (idx === -1) return;
+          const chartArea = chart.chartArea;
           if (!chartArea) return;
-          const left = chartArea.left, right = chartArea.right;
-          const frac = (labels.length > 1) ? (idx / (labels.length - 1)) : 0.5;
-          const x = left + frac * (right - left);
-
+          const frac = labels.length > 1 ? idx / (labels.length - 1) : 0.5;
+          const x = chartArea.left + frac * (chartArea.right - chartArea.left);
           const ctx = chart.ctx;
           ctx.save();
           ctx.beginPath();
           ctx.strokeStyle = color;
           ctx.lineWidth = 2;
-          ctx.setLineDash([6,4]);
+          ctx.setLineDash([6, 4]);
           ctx.moveTo(x, chartArea.top);
           ctx.lineTo(x, chartArea.bottom);
           ctx.stroke();
-
-          // label at top
           ctx.fillStyle = color;
           ctx.font = '600 14px Inter, sans-serif';
           ctx.textAlign = 'center';
@@ -562,51 +497,39 @@
         } catch (e) { console.warn('drawTimeMarkerOnChart failed', e); }
       }
 
-      // helper to draw all markers from arrays returned by backend
       try {
-        const sunrises = (weather.sunrise || []).slice();
-        const sunsets = (weather.sunset || []).slice();
-        // draw on temp, precip and cloud charts
-        for (const sr of sunrises) {
-          drawTimeMarkerOnChart(window._tempChart, sr, 'Sunrise', 'rgba(255,223,102,0.95)');
+        for (const sr of (weather.sunrise || [])) {
+          drawTimeMarkerOnChart(window._tempChart,   sr, 'Sunrise', 'rgba(255,223,102,0.95)');
           drawTimeMarkerOnChart(window._precipChart, sr, 'Sunrise', 'rgba(255,223,102,0.95)');
-          drawTimeMarkerOnChart(window._cloudChart, sr, 'Sunrise', 'rgba(255,223,102,0.95)');
+          drawTimeMarkerOnChart(window._cloudChart,  sr, 'Sunrise', 'rgba(255,223,102,0.95)');
         }
-        for (const ss of sunsets) {
-          drawTimeMarkerOnChart(window._tempChart, ss, 'Sunset', 'rgba(255,143,66,0.95)');
+        for (const ss of (weather.sunset || [])) {
+          drawTimeMarkerOnChart(window._tempChart,   ss, 'Sunset', 'rgba(255,143,66,0.95)');
           drawTimeMarkerOnChart(window._precipChart, ss, 'Sunset', 'rgba(255,143,66,0.95)');
-          drawTimeMarkerOnChart(window._cloudChart, ss, 'Sunset', 'rgba(255,143,66,0.95)');
+          drawTimeMarkerOnChart(window._cloudChart,  ss, 'Sunset', 'rgba(255,143,66,0.95)');
         }
       } catch (e) { console.warn('Failed to draw sun markers', e); }
 
       if (updatedEl) updatedEl.textContent = (new Date()).toLocaleString();
     }
 
+    // ── Init ─────────────────────────────────────────────────────────────────
     async function init() {
-      // populate devices into left column (and refresh periodically)
       await fetchAndRenderDevices();
-      // refresh device states every 60 seconds
       setInterval(fetchAndRenderDevices, 60 * 1000);
 
-      // attach listeners to all-on/all-off buttons
-      document.getElementById('all-lights-on').addEventListener('click', () => toggleAllDevices('on'));
-      document.getElementById('all-lights-off').addEventListener('click', () => toggleAllDevices('off'));
+      document.getElementById('all-lights-on').addEventListener('click',  () => setAllDevices(true));
+      document.getElementById('all-lights-off').addEventListener('click', () => setAllDevices(false));
 
-      // fetch and render weather, then refresh periodically
       try {
         const w = await fetchWeather();
         renderWeather(w);
-        // refresh every 1 minute to keep the moving window current
-        setInterval(async () => {
-          const nw = await fetchWeather();
-          renderWeather(nw);
-        }, 900 * 1000);
+        setInterval(async () => { const nw = await fetchWeather(); renderWeather(nw); }, 900 * 1000);
       } catch (e) { console.error('Render weather failed', e); }
     }
 
     init().catch(err => {
-      const list = document.getElementById('device-list');
-      list.innerHTML = `<div style="opacity:.8">Failed to load devices: ${err.message}</div>`;
+      document.getElementById('device-list').innerHTML = `<div style="opacity:.8">Failed to load devices: ${err.message}</div>`;
       console.error(err);
     });
   </script>

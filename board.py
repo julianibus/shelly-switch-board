@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, Any
 
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Flask, jsonify, request, abort, make_response, render_template
 print("Hello")
 APP_TITLE = "Shelly Panel"
@@ -168,19 +169,29 @@ def shelly_toggle(ip: str) -> Dict[str, Any]:
 @app.get("/api/devices")
 def api_devices():
     # Return devices with an additional 'state' field (True=on, False=off, None=unknown)
-    devices = []
-    for d in CONFIG.get("devices", []):
+    # Fetch all device states in parallel to avoid sequential timeout stacking.
+    config = load_config()
+    devices_cfg = config.get("devices", [])
+    results: list = [None] * len(devices_cfg)
+
+    def fetch(i: int, d: Dict[str, Any]) -> None:
         ip = d.get("ip")
         state = None
         if ip:
             try:
                 state = shelly_get_state(ip)
             except Exception:
-                state = None
+                pass
         dd = dict(d)
         dd["state"] = state
-        devices.append(dd)
-    return jsonify(devices)
+        results[i] = dd
+
+    with ThreadPoolExecutor(max_workers=max(len(devices_cfg), 1)) as ex:
+        futs = {ex.submit(fetch, i, d): i for i, d in enumerate(devices_cfg)}
+        for f in as_completed(futs):
+            f.result()
+
+    return jsonify(results)
 
 
 def shelly_get_state(ip: str) -> bool | None:
@@ -254,6 +265,44 @@ def shelly_get_state(ip: str) -> bool | None:
         except Exception:
             continue
     return None
+
+def shelly_set(ip: str, on: bool) -> Dict[str, Any]:
+    """Set a Shelly device relay to a specific state. Tries Gen1, then Gen2 RPC."""
+    state_str = "on" if on else "off"
+    url_gen1 = f"http://{ip}/relay/0?turn={state_str}"
+    try:
+        r = requests.get(url_gen1, timeout=TIMEOUT)
+        if r.ok:
+            return {"ok": True, "endpoint": url_gen1, "status_code": r.status_code, "error": None}
+    except Exception as e:
+        err1 = str(e)
+    else:
+        err1 = f"HTTP {r.status_code}"
+
+    on_str = "true" if on else "false"
+    url_gen2 = f"http://{ip}/rpc/Switch.Set?id=0&on={on_str}"
+    try:
+        r2 = requests.get(url_gen2, timeout=TIMEOUT)
+        if r2.ok:
+            return {"ok": True, "endpoint": url_gen2, "status_code": r2.status_code, "error": None}
+    except Exception as e:
+        err2 = str(e)
+    else:
+        err2 = f"HTTP {r2.status_code}"
+
+    return {"ok": False, "endpoint": url_gen2, "status_code": None, "error": f"Gen1 failed: {err1}; Gen2 failed: {err2}"}
+
+
+@app.post("/api/set")
+def api_set():
+    data = request.get_json(silent=True) or {}
+    ip = data.get("ip")
+    on = data.get("on")
+    if not ip or on is None:
+        abort(make_response(jsonify({"error": "Missing 'ip' or 'on'"}), 400))
+    result = shelly_set(ip, bool(on))
+    return make_response(jsonify(result), 200 if result["ok"] else 502)
+
 
 @app.post("/api/toggle")
 def api_toggle():
