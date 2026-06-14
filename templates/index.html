@@ -582,6 +582,7 @@
     }
 
     function renderPosthog(data) {
+      console.log('PostHog raw response:', JSON.stringify(data, null, 2));
       const todayEl = document.getElementById('posthog-today');
       const weekEl  = document.getElementById('posthog-week');
       const fmt = n => n == null ? '—' : Number(n).toLocaleString();
